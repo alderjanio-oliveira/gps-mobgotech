@@ -43,11 +43,12 @@ Todo o deploy é feito pelo [`scripts/deploy.sh`](scripts/deploy.sh), rodado **d
 - Node.js 20+ e `npm`, só necessário pras flags `--web`/`--web-rollback` (compilação do `traccar-web`).
 - `mysql`, `mysqldump`, `curl`, `rsync` disponíveis no PATH.
 
-### Backend: `--stg`, `--stg-stop`, `--prod`, `--rollback`
+### Backend: `--stg`, `--stg-stop`, `--prod`, `--rollback`, `--fix-changelog`
 
 Não existe ambiente de staging separado — o próprio script simula um no mesmo droplet, clonando o banco de produção pra um banco descartável.
 
-1. **`./scripts/deploy.sh --stg`** — compila o jar, clona o banco `traccar` real pra um banco `traccar_stg` (mesmo MySQL, banco separado), sobe o jar novo na porta `8083` usando o mesmo runtime java de produção, com **notificadores desligados** (evita mandar email/Telegram real durante o teste, já que o banco clonado tem dados reais de usuários). Faz um healthcheck automático e, se passar, **deixa o processo rodando** pra validação manual — não mata sozinho.
+0. **`./scripts/deploy.sh --fix-changelog`** — fix pontual e idempotente pra uma inconsistência já existente na produção: a coluna `motionlatitude`/tabela `tc_device_device` do changelog `6.13.0` já foi aplicada fisicamente no banco em algum momento fora do fluxo padrão do Liquibase, mas o `DATABASECHANGELOG` não tem registro disso — sem esse fix, qualquer boot com jar novo quebra com `Duplicate column name 'motionlatitude'`. É aplicado **automaticamente** dentro do clone do `--stg`; rode esse comando direto uma vez contra a produção antes do primeiro `--prod`, senão ele vai travar na mesma coisa. Seguro rodar mais de uma vez (pede confirmação por escrever direto no banco real).
+1. **`./scripts/deploy.sh --stg`** — compila o jar, clona o banco `traccar` real pra um banco `traccar_stg` (mesmo MySQL, banco separado), aplica o `--fix-changelog` na cópia automaticamente, sobe o jar novo na porta `8083` usando o mesmo runtime java de produção, com **notificadores desligados** (evita mandar email/Telegram real durante o teste, já que o banco clonado tem dados reais de usuários). Faz um healthcheck automático e, se passar, **deixa o processo rodando** pra validação manual — não mata sozinho. Se falhar, limpa sozinho o banco clonado e a pasta de staging (salvando o log de boot em `backups/stg-boot-<timestamp>.log` antes de limpar), sem deixar lixo acumulando em disco a cada tentativa.
 2. **Validar manualmente** (opcional): de dentro do droplet, `curl http://localhost:8083/api/server`. Do seu computador, sem abrir porta nenhuma no firewall:
    ```
    ssh -L 8083:localhost:8083 usuario@gps.mobgotech.com

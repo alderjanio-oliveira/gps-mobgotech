@@ -48,6 +48,10 @@ Usage: $0 --stg | --stg-stop | --prod | --rollback [TIMESTAMP] | --web | --web-r
   --web          Build traccar-web and sync its static output into $TRACCAR_HOME/web.
                  No service restart, no DB involved — backs up the current web/ first.
   --web-rollback Restore web/ from a previous --web backup (defaults to the latest).
+  --fix-changelog  One-off fix for changelog-6.13.0 being applied physically but not
+                 recorded in DATABASECHANGELOG (pre-existing prod drift). Idempotent.
+                 Applied automatically to the clone inside --stg; run this once
+                 directly against prod before --prod if it hasn't been fixed there yet.
 EOF
 }
 
@@ -177,6 +181,51 @@ wait_for_health() {
     return 1
 }
 
+# ---------- fix pontual: changelog-6.13.0 já aplicado fisicamente mas sem registro no
+# DATABASECHANGELOG (herdado de uma migration manual anterior a este script). Sem isso,
+# o Liquibase tenta rodar o changeset de novo e quebra em "Duplicate column name". Idempotente
+# — seguro rodar mais de uma vez, e seguro mesmo se tc_device_device/FK já existirem.
+
+fix_changelog_6130() {
+    local target_db="$1"
+    log "aplicando fix de compatibilidade do changelog-6.13.0 em $target_db..."
+    export MYSQL_PWD="$DB_PASS"
+    mysql -h "$DB_HOST" -u "$DB_USER" "$target_db" <<'SQL'
+CREATE TABLE IF NOT EXISTS `tc_device_device` (
+  `deviceid` INT NOT NULL,
+  `linkeddeviceid` INT NOT NULL
+);
+
+SET @fk_exists = (SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE() AND CONSTRAINT_NAME = 'fk_device_device_deviceid');
+SET @sql = IF(@fk_exists = 0,
+  'ALTER TABLE `tc_device_device` ADD CONSTRAINT `fk_device_device_deviceid` FOREIGN KEY (`deviceid`) REFERENCES `tc_devices`(`id`) ON DELETE CASCADE',
+  'SELECT 1');
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+INSERT INTO `DATABASECHANGELOG`
+  (ID, AUTHOR, FILENAME, DATEEXECUTED, ORDEREXECUTED, EXECTYPE, MD5SUM, DESCRIPTION, LIQUIBASE, LABELS, CONTEXTS)
+SELECT 'changelog-6.13.0', 'author', 'changelog-6.13.0', NOW(),
+  (SELECT COALESCE(MAX(ORDEREXECUTED), 0) + 1 FROM (SELECT ORDEREXECUTED FROM DATABASECHANGELOG) t),
+  'EXECUTED', NULL, 'addColumn, createTable tc_device_device, addForeignKeyConstraint', NULL, NULL, NULL
+WHERE NOT EXISTS (
+  SELECT 1 FROM `DATABASECHANGELOG` WHERE ID='changelog-6.13.0' AND AUTHOR='author' AND FILENAME='changelog-6.13.0'
+);
+SQL
+    unset MYSQL_PWD
+    log "fix aplicado em $target_db."
+}
+
+run_fix_changelog() {
+    [ -f "$CONF_FILE" ] || die "config de produção não encontrada em $CONF_FILE (TRACCAR_HOME=$TRACCAR_HOME está certo?)"
+    require_cmd mysql
+    parse_db_conf
+    warn "isso vai gravar direto no banco de produção '$DB_NAME' (fora do fluxo normal do --prod)."
+    read -r -p "Digite CONFIRMAR para prosseguir: " confirm
+    [ "$confirm" = "CONFIRMAR" ] || die "abortado pelo operador"
+    fix_changelog_6130 "$DB_NAME"
+}
+
 # ---------- --stg ----------
 
 run_stg() {
@@ -199,6 +248,8 @@ run_stg() {
     mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME; CREATE DATABASE $STG_DB_NAME;"
     mysqldump --no-tablespaces -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
     unset MYSQL_PWD
+
+    fix_changelog_6130 "$STG_DB_NAME"
 
     log "montando ambiente de staging em $STG_HOME..."
     rm -rf "$STG_HOME"
@@ -237,34 +288,44 @@ Quando terminar de validar, encerre com:
   ./scripts/deploy.sh --stg-stop
 EOF
     else
-        warn "STAGING FALHOU — confira $STG_HOME/boot.log antes de tentar --prod"
-        kill "$STG_PID" 2>/dev/null || true
-        die "staging não respondeu dentro de ${HEALTH_TIMEOUT}s"
+        local saved_log
+        saved_log="$BACKUP_ROOT/stg-boot-$(date -u +%Y%m%dT%H%M%SZ).log"
+        mkdir -p "$BACKUP_ROOT"
+        cp "$STG_HOME/boot.log" "$saved_log" 2>/dev/null || true
+        warn "STAGING FALHOU — log salvo em $saved_log"
+        cleanup_stg
+        die "staging não respondeu dentro de ${HEALTH_TIMEOUT}s (banco $STG_DB_NAME e $STG_HOME já foram limpos, sem deixar lixo em disco)"
     fi
 }
 
-run_stg_stop() {
+cleanup_stg() {
     if [ -f "$STG_HOME/pid" ]; then
         local pid
         pid=$(cat "$STG_HOME/pid")
         kill "$pid" 2>/dev/null || true
         log "processo de staging (PID $pid) encerrado."
-    else
-        warn "nenhum pid de staging encontrado em $STG_HOME/pid"
     fi
 
     if [ -f "$CONF_FILE" ]; then
-        DB_USER=$(conf_value "database.user")
-        DB_HOST=$(conf_value "database.url" | sed -E 's#jdbc:mysql://([^/:]+).*#\1#')
+        local drop_user drop_host
+        drop_user=$(conf_value "database.user")
+        drop_host=$(conf_value "database.url" | sed -E 's#jdbc:mysql://([^/:]+).*#\1#')
         export MYSQL_PWD="$(conf_value "database.password")"
-        if ! mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME;"; then
+        if ! mysql -h "$drop_host" -u "$drop_user" -e "DROP DATABASE IF EXISTS $STG_DB_NAME;"; then
             warn "não consegui derrubar o banco $STG_DB_NAME, remova manualmente depois"
         fi
         unset MYSQL_PWD
     fi
 
     rm -rf "$STG_HOME"
-    log "$STG_HOME removido."
+}
+
+run_stg_stop() {
+    if [ ! -f "$STG_HOME/pid" ]; then
+        warn "nenhum pid de staging encontrado em $STG_HOME/pid"
+    fi
+    cleanup_stg
+    log "$STG_HOME e o banco $STG_DB_NAME removidos."
 }
 
 # ---------- --prod ----------
@@ -442,5 +503,6 @@ case "${1:-}" in
     --rollback) run_rollback "${2:-}" ;;
     --web) run_web ;;
     --web-rollback) run_web_rollback "${2:-}" ;;
+    --fix-changelog) run_fix_changelog ;;
     *) usage; exit 1 ;;
 esac
