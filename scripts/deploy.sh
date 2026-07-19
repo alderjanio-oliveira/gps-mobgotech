@@ -100,7 +100,7 @@ preflight() {
     require_cmd curl
     require_cmd rsync
 
-    if ! (cd "$REPO_DIR" && [ -n "${BUILD_JAVA_HOME:-}" ] && export JAVA_HOME="$BUILD_JAVA_HOME"; ./gradlew -v) >/dev/null 2>&1; then
+    if ! (cd "$REPO_DIR" && [ -n "${BUILD_JAVA_HOME:-}" ] && export JAVA_HOME="$BUILD_JAVA_HOME"; ./gradlew --no-daemon -v) >/dev/null 2>&1; then
         die "não achei um JDK 21+ para compilar. Instale com 'sudo apt install openjdk-21-jdk-headless' e/ou exporte BUILD_JAVA_HOME."
     fi
 }
@@ -122,7 +122,11 @@ build_jar() {
     (
         cd "$REPO_DIR"
         [ -n "${BUILD_JAVA_HOME:-}" ] && export JAVA_HOME="$BUILD_JAVA_HOME"
-        ./gradlew assemble -x test -x checkstyleMain -x checkstyleTest
+        # --no-daemon + heap baixo: droplets pequenos sem swap derrubam (OOM) o daemon do
+        # Gradle default. Sem daemon persistente, a JVM da build morre e libera a memória
+        # assim que termina, em vez de ficar residente entre execuções.
+        export GRADLE_OPTS="-Xmx512m -XX:MaxMetaspaceSize=256m"
+        ./gradlew --no-daemon assemble -x test -x checkstyleMain -x checkstyleTest
     )
     [ -f "$REPO_DIR/target/tracker-server.jar" ] || die "build não gerou target/tracker-server.jar"
     log "build ok: $REPO_DIR/target/tracker-server.jar"
