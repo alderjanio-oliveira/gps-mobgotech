@@ -3,13 +3,16 @@
 # Deploy script for the go-nansen Traccar fork.
 #
 # Run from inside the cloned repo on the droplet:
-#   ./scripts/deploy.sh --stg     dry-run against a throwaway copy of the prod DB, no prod service touched
-#   ./scripts/deploy.sh --prod    real upgrade of the running /opt/traccar install
-#   ./scripts/deploy.sh --rollback [TIMESTAMP]   restore jar/lib/schema/templates from a prior backup
+#   ./scripts/deploy.sh --stg              dry-run against a throwaway copy of the prod DB, no prod service touched
+#   ./scripts/deploy.sh --stg-stop         tear down the --stg process/database
+#   ./scripts/deploy.sh --prod             real upgrade of the running /opt/traccar install (backend)
+#   ./scripts/deploy.sh --rollback [TS]    restore jar/lib/schema/templates from a prior --prod backup
+#   ./scripts/deploy.sh --web              build traccar-web and sync it into /opt/traccar/web, no restart
+#   ./scripts/deploy.sh --web-rollback [TS] restore web/ from a prior --web backup
 #
-# Only tracker-server.jar, lib/, schema/*.xml and templates/**/*.vm are ever touched on the
-# target install. conf/traccar.xml, jre/, web/ and the database's existing tables are never
-# modified by this script (the migration this repo ships only ADDS new tables).
+# --prod only ever touches tracker-server.jar, lib/, schema/*.xml and templates/**/*.vm.
+# --web only ever touches web/. conf/traccar.xml, jre/ and the database's existing tables
+# are never modified by this script (the migration this repo ships only ADDS new tables).
 
 set -euo pipefail
 
@@ -30,18 +33,21 @@ die()  { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Usage: $0 --stg | --stg-stop | --prod | --rollback [TIMESTAMP]
+Usage: $0 --stg | --stg-stop | --prod | --rollback [TIMESTAMP] | --web | --web-rollback [TIMESTAMP]
 
-  --stg        Build the jar, clone the prod DB into a throwaway '$STG_DB_NAME'
-               database, boot the new jar on port $STG_PORT against that copy,
-               health-check it, then leave it running for manual validation.
-               Never touches the running prod service or the real database.
-  --stg-stop   Kill the staging process and drop the '$STG_DB_NAME' database.
-  --prod       Build the jar, back up the DB and the current release files,
-               stop $SERVICE_NAME, swap in the new jar/lib/schema/templates,
-               start $SERVICE_NAME, health-check it, auto-rollback on failure.
-  --rollback   Restore jar/lib/schema/templates from a previous --prod backup.
-               Defaults to the most recent backup if TIMESTAMP is omitted.
+  --stg          Build the jar, clone the prod DB into a throwaway '$STG_DB_NAME'
+                 database, boot the new jar on port $STG_PORT against that copy,
+                 health-check it, then leave it running for manual validation.
+                 Never touches the running prod service or the real database.
+  --stg-stop     Kill the staging process and drop the '$STG_DB_NAME' database.
+  --prod         Build the jar, back up the DB and the current release files,
+                 stop $SERVICE_NAME, swap in the new jar/lib/schema/templates,
+                 start $SERVICE_NAME, health-check it, auto-rollback on failure.
+  --rollback     Restore jar/lib/schema/templates from a previous --prod backup.
+                 Defaults to the most recent backup if TIMESTAMP is omitted.
+  --web          Build traccar-web and sync its static output into $TRACCAR_HOME/web.
+                 No service restart, no DB involved — backs up the current web/ first.
+  --web-rollback Restore web/ from a previous --web backup (defaults to the latest).
 EOF
 }
 
@@ -307,6 +313,54 @@ run_rollback() {
     fi
 }
 
+# ---------- --web ----------
+
+run_web() {
+    local web_project="$REPO_DIR/traccar-web"
+    [ -f "$web_project/package.json" ] || die "não achei $web_project/package.json"
+    require_cmd npm
+    [ -d "$TRACCAR_HOME/web" ] || die "$TRACCAR_HOME/web não existe (TRACCAR_HOME=$TRACCAR_HOME está certo?)"
+
+    local node_version
+    node_version=$(node --version 2>/dev/null | grep -oP '(?<=v)[0-9]+' | head -n1)
+    [ -n "$node_version" ] && [ "$node_version" -ge 20 ] \
+        || die "Node.js 20+ não encontrado (rode 'node --version'). Instale antes de continuar."
+
+    log "instalando dependências e compilando o front (traccar-web)..."
+    (cd "$web_project" && npm ci && npm run build)
+    [ -d "$web_project/dist" ] || die "build não gerou $web_project/dist"
+
+    local ts dir
+    ts=$(date -u +%Y%m%dT%H%M%SZ)
+    dir="$BACKUP_ROOT/web_$ts"
+    mkdir -p "$dir"
+    cp -r "$TRACCAR_HOME/web/." "$dir/"
+    log "backup do web/ atual: $dir"
+
+    rsync -a --delete "$web_project/dist/" "$TRACCAR_HOME/web/"
+    log "WEB OK — front atualizado em $TRACCAR_HOME/web (nenhum serviço foi reiniciado)."
+    log "peça pra quem for validar dar um hard-refresh (Ctrl+Shift+R) por causa do cache do navegador."
+    log "pra reverter: ./scripts/deploy.sh --web-rollback $ts"
+}
+
+run_web_rollback() {
+    local ts="${1:-}"
+    local dir
+    if [ -z "$ts" ]; then
+        dir=$(ls -1dt "$BACKUP_ROOT"/web_*/ 2>/dev/null | head -n1)
+        [ -n "$dir" ] || die "nenhum backup de web/ encontrado em $BACKUP_ROOT"
+    else
+        dir="$BACKUP_ROOT/web_$ts"
+    fi
+    [ -d "$dir" ] || die "backup não encontrado: $dir"
+
+    read -r -p "Vou reverter $TRACCAR_HOME/web para o backup em $dir. Digite CONFIRMAR: " confirm
+    [ "$confirm" = "CONFIRMAR" ] || die "abortado pelo operador"
+
+    rsync -a --delete "$dir/" "$TRACCAR_HOME/web/"
+    log "web/ revertido a partir de $dir (nenhum serviço precisou reiniciar)."
+}
+
 # ---------- entrypoint ----------
 
 case "${1:-}" in
@@ -314,5 +368,7 @@ case "${1:-}" in
     --stg-stop) run_stg_stop ;;
     --prod) run_prod ;;
     --rollback) run_rollback "${2:-}" ;;
+    --web) run_web ;;
+    --web-rollback) run_web_rollback "${2:-}" ;;
     *) usage; exit 1 ;;
 esac

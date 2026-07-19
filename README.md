@@ -29,6 +29,62 @@ Some of the available features include:
 
 Please read [build from source documentation](https://www.traccar.org/build/) on the official website.
 
+## Deploy (fork gps-mobgotech)
+
+Esta é a nossa versão customizada do Traccar (fork [gps-mobgotech](https://github.com/alderjanio-oliveira/gps-mobgotech), remote `mobgo`), com features próprias além do Traccar padrão (evento de bateria desconectada via `charger`, "distance reminders" — notificação de manutenção por km futuro com confirmação manual). Roda em produção num droplet DigitalOcean (`gps.mobgotech.com`), instalação padrão em `/opt/traccar`, banco MySQL, serviço systemd `traccar`.
+
+Todo o deploy é feito pelo [`scripts/deploy.sh`](scripts/deploy.sh), rodado **de dentro do repositório clonado no próprio droplet**.
+
+### Pré-requisitos no droplet
+
+- Instalação Traccar já existente em `/opt/traccar` (`conf/traccar.xml`, JRE embutido em `jre/`, `schema/`, `templates/`, `web/`).
+- JRE embutido em `/opt/traccar/jre` precisa ser Java 21+ (o script valida e aborta se não for).
+- Um JDK 21+ separado só para compilar (`javac`/gradle) — `sudo apt install openjdk-21-jdk-headless` se faltar. Pode apontar pra um JDK específico com a env var `BUILD_JAVA_HOME`.
+- Node.js 20+ e `npm`, só necessário pras flags `--web`/`--web-rollback` (compilação do `traccar-web`).
+- `mysql`, `mysqldump`, `curl`, `rsync` disponíveis no PATH.
+
+### Backend: `--stg`, `--stg-stop`, `--prod`, `--rollback`
+
+Não existe ambiente de staging separado — o próprio script simula um no mesmo droplet, clonando o banco de produção pra um banco descartável.
+
+1. **`./scripts/deploy.sh --stg`** — compila o jar, clona o banco `traccar` real pra um banco `traccar_stg` (mesmo MySQL, banco separado), sobe o jar novo na porta `8083` usando o mesmo JRE embutido de produção, com **notificadores desligados** (evita mandar email/Telegram real durante o teste, já que o banco clonado tem dados reais de usuários). Faz um healthcheck automático e, se passar, **deixa o processo rodando** pra validação manual — não mata sozinho.
+2. **Validar manualmente** (opcional): de dentro do droplet, `curl http://localhost:8083/api/server`. Do seu computador, sem abrir porta nenhuma no firewall:
+   ```
+   ssh -L 8083:localhost:8083 usuario@gps.mobgotech.com
+   ```
+   depois acesse `http://localhost:8083` no navegador — login com usuário/senha reais de produção (é uma cópia do banco).
+3. **`./scripts/deploy.sh --stg-stop`** — mata o processo de staging e derruba o banco `traccar_stg`. Rodar `--stg` de novo sem isso primeiro é bloqueado pelo script (evita dois processos na mesma porta).
+4. **`./scripts/deploy.sh --prod`** — só depois de confirmar que o `--stg` passou limpo. Pede confirmação explícita (digitar `CONFIRMAR`), então:
+   - Faz backup do banco de produção (`mysqldump | gzip`, valida que não ficou vazio antes de prosseguir) e backup do release atual (jar, `lib/`, `schema/`, `templates/`) em `/opt/traccar/backups/`.
+   - Para o serviço (`systemctl stop traccar`), troca **apenas** `tracker-server.jar`, `lib/`, `schema/*.xml` e `templates/**/*.vm`. Nunca toca em `conf/traccar.xml`, `jre/`, `web/` ou em tabelas já existentes do banco (as migrations deste fork só criam tabelas novas).
+   - Sobe o serviço de novo e faz healthcheck em `/api/server`. Se falhar, **reverte sozinho** pro jar/schema/templates anteriores e avisa — o banco não precisa de rollback porque a migration é só aditiva.
+5. **`./scripts/deploy.sh --rollback [TIMESTAMP]`** — reversão manual independente, útil se um problema aparecer horas/dias depois do deploy. Sem `TIMESTAMP`, usa o backup mais recente em `/opt/traccar/backups/release_*`.
+
+### Frontend: `--web`, `--web-rollback`
+
+O front (`traccar-web`) é servido como arquivos estáticos direto de `/opt/traccar/web/` pelo Jetty (lidos do disco a cada request) — **não precisa reiniciar o serviço** pra uma troca de front valer.
+
+1. **`./scripts/deploy.sh --web`** — roda `npm ci && npm run build` dentro de `traccar-web/`, faz backup do `web/` atual em `/opt/traccar/backups/web_<timestamp>/`, e sincroniza (`rsync -a --delete`) o build novo (`traccar-web/dist/`) pra `/opt/traccar/web/`. Nenhum serviço é parado ou reiniciado. Depois de rodar, peça pra quem for validar dar um hard-refresh (Ctrl+Shift+R) — o navegador pode segurar a versão antiga em cache.
+2. **`./scripts/deploy.sh --web-rollback [TIMESTAMP]`** — restaura `web/` a partir de um backup anterior (pede confirmação). Sem `TIMESTAMP`, usa o mais recente.
+
+### Variáveis de ambiente (todas opcionais, com default sensato)
+
+| Variável | Default | Uso |
+| --- | --- | --- |
+| `TRACCAR_HOME` | `/opt/traccar` | onde a instalação real vive |
+| `SERVICE_NAME` | `traccar` | nome do serviço systemd |
+| `STG_HOME` | `/opt/traccar-stg` | pasta temporária da staging |
+| `STG_DB_NAME` | `traccar_stg` | banco temporário da staging |
+| `STG_PORT` | `8083` | porta da staging |
+| `HEALTH_TIMEOUT` | `90` (segundos) | tempo máximo esperando o healthcheck |
+| `BUILD_JAVA_HOME` | (herda do ambiente) | JDK usado só pra compilar, se diferente do `JAVA_HOME` padrão |
+
+### Segurança
+
+- `conf/traccar.xml` tem credenciais reais (banco, SMTP, bot do Telegram) — nunca commitar esse arquivo nem colar seu conteúdo em lugar nenhum fora do droplet.
+- O script nunca imprime senha nenhuma no log; usa `MYSQL_PWD` só durante o comando específico e limpa a variável logo depois.
+- Toda ação que mexe em produção (`--prod`, `--rollback`, `--web-rollback`) exige digitar `CONFIRMAR` antes de prosseguir.
+
 ## Team
 
 - Anton Tananaev ([anton@traccar.org](mailto:anton@traccar.org))
