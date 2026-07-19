@@ -29,6 +29,7 @@ import org.traccar.model.Attribute;
 import org.traccar.model.BaseModel;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
+import org.traccar.model.DistanceReminder;
 import org.traccar.model.Driver;
 import org.traccar.model.Geofence;
 import org.traccar.model.Group;
@@ -64,7 +65,9 @@ public class CacheManager implements BroadcastInterface {
     private static final Logger LOGGER = LoggerFactory.getLogger(CacheManager.class);
 
     private static final Set<Class<? extends BaseModel>> GROUPED_CLASSES =
-            Set.of(Attribute.class, Device.class, Driver.class, Geofence.class, Maintenance.class, Notification.class);
+            Set.of(
+                    Attribute.class, Device.class, DistanceReminder.class, Driver.class, Geofence.class,
+                    Maintenance.class, Notification.class);
 
     private final Config config;
     private final Storage storage;

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.14.0">
+
+  <changeSet author="author" id="changelog-6.14.0">
+
+    <createTable tableName="tc_distance_reminders">
+      <column name="id" type="INT" autoIncrement="true">
+        <constraints primaryKey="true" />
+      </column>
+      <column name="name" type="VARCHAR(4000)">
+        <constraints nullable="false" />
+      </column>
+      <column name="thresholddistance" type="DOUBLE" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="startvalue" type="DOUBLE" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="status" type="VARCHAR(16)" defaultValue="pending">
+        <constraints nullable="false" />
+      </column>
+      <column name="notifiedat" type="TIMESTAMP" />
+      <column name="confirmedat" type="TIMESTAMP" />
+      <column name="traveleddistance" type="DOUBLE" defaultValueNumeric="0">
+        <constraints nullable="false" />
+      </column>
+      <column name="cancelledat" type="TIMESTAMP" />
+      <column name="attributes" type="VARCHAR(4000)">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <!-- table name must match Permission.getStorageName(Device.class, DistanceReminder.class),
+         i.e. Introspector.decapitalize("DistanceReminder") = "distanceReminder" (capital R kept) -->
+    <createTable tableName="tc_device_distanceReminder">
+      <column name="deviceid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="distancereminderid" type="INT">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addForeignKeyConstraint baseTableName="tc_device_distanceReminder" baseColumnNames="deviceid" constraintName="fk_device_distancereminder_deviceid" onDelete="CASCADE" referencedColumnNames="id" referencedTableName="tc_devices" />
+    <addForeignKeyConstraint baseTableName="tc_device_distanceReminder" baseColumnNames="distancereminderid" constraintName="fk_device_distancereminder_distancereminderid" onDelete="CASCADE" referencedColumnNames="id" referencedTableName="tc_distance_reminders" />
+
+  </changeSet>
+
+</databaseChangeLog>

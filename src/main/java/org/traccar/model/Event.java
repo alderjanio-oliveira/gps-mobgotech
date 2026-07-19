@@ -66,7 +66,11 @@ public class Event extends Message {
     public static final String TYPE_IGNITION_ON = "ignitionOn";
     public static final String TYPE_IGNITION_OFF = "ignitionOff";
 
+    public static final String TYPE_CHARGE_CONNECTED = "chargeConnected";
+    public static final String TYPE_CHARGE_DISCONNECTED = "chargeDisconnected";
+
     public static final String TYPE_MAINTENANCE = "maintenance";
+    public static final String TYPE_DISTANCE_REMINDER = "distanceReminder";
     public static final String TYPE_DRIVER_CHANGED = "driverChanged";
     public static final String TYPE_MEDIA = "media";
 
@@ -108,6 +112,16 @@ public class Event extends Message {
 
     public void setMaintenanceId(long maintenanceId) {
         this.maintenanceId = maintenanceId;
+    }
+
+    private long distanceReminderId = 0;
+
+    public long getDistanceReminderId() {
+        return distanceReminderId;
+    }
+
+    public void setDistanceReminderId(long distanceReminderId) {
+        this.distanceReminderId = distanceReminderId;
     }
 
 }

@@ -46,7 +46,9 @@ import org.traccar.handler.TimeHandler;
 import org.traccar.handler.events.AlarmEventHandler;
 import org.traccar.handler.events.BaseEventHandler;
 import org.traccar.handler.events.BehaviorEventHandler;
+import org.traccar.handler.events.ChargeEventHandler;
 import org.traccar.handler.events.CommandResultEventHandler;
+import org.traccar.handler.events.DistanceReminderEventHandler;
 import org.traccar.handler.events.DriverEventHandler;
 import org.traccar.handler.events.FuelEventHandler;
 import org.traccar.handler.events.GeofenceEventHandler;
@@ -132,7 +134,9 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 ProximityEventHandler.class,
                 AlarmEventHandler.class,
                 IgnitionEventHandler.class,
+                ChargeEventHandler.class,
                 MaintenanceEventHandler.class,
+                DistanceReminderEventHandler.class,
                 DriverEventHandler.class)
                 .map((clazz) -> (BaseEventHandler) injector.getInstance(clazz))
                 .filter(Objects::nonNull)

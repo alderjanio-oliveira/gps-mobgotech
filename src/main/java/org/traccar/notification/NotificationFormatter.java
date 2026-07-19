@@ -20,6 +20,7 @@ import org.apache.velocity.VelocityContext;
 import org.traccar.database.LocaleManager;
 import org.traccar.helper.model.UserUtil;
 import org.traccar.model.Device;
+import org.traccar.model.DistanceReminder;
 import org.traccar.model.Driver;
 import org.traccar.model.Event;
 import org.traccar.model.Geofence;
@@ -71,6 +72,11 @@ public class NotificationFormatter {
         }
         if (event.getMaintenanceId() != 0) {
             velocityContext.put("maintenance", cacheManager.getObject(Maintenance.class, event.getMaintenanceId()));
+        }
+        if (event.getDistanceReminderId() != 0) {
+            velocityContext.put(
+                    "distanceReminder",
+                    cacheManager.getObject(DistanceReminder.class, event.getDistanceReminderId()));
         }
         String driverUniqueId = event.getString(Position.KEY_DRIVER_UNIQUE_ID);
         if (driverUniqueId != null) {
