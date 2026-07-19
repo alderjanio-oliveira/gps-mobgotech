@@ -117,6 +117,37 @@ parse_db_conf() {
     [ -n "$DB_HOST" ] && [ -n "$DB_NAME" ] || die "não consegui extrair host/nome do banco de database.url"
 }
 
+db_size_bytes() {
+    export MYSQL_PWD="$DB_PASS"
+    local bytes
+    bytes=$(mysql -h "$DB_HOST" -u "$DB_USER" -N -B -e \
+        "SELECT COALESCE(SUM(data_length + index_length), 0) FROM information_schema.tables WHERE table_schema = '$DB_NAME';")
+    unset MYSQL_PWD
+    echo "${bytes:-0}"
+}
+
+avail_bytes() {
+    df --output=avail -B1 "$TRACCAR_HOME" | tail -n1 | tr -d ' '
+}
+
+human_bytes() {
+    awk -v b="$1" 'BEGIN { printf "%.1fG", b / 1024 / 1024 / 1024 }'
+}
+
+# Garante espaço em disco suficiente ANTES de qualquer operação que grave dados —
+# um clone de banco cheio ou uma build sem margem podem encher o disco (já aconteceu:
+# MySQL derruba o próprio processo com binlog_error_action=ABORT_SERVER quando o disco
+# enche no meio de uma escrita).
+require_disk_space() {
+    local needed="$1" label="$2"
+    local avail
+    avail=$(avail_bytes)
+    if [ "$avail" -lt "$needed" ]; then
+        die "espaço em disco insuficiente para $label: disponível $(human_bytes "$avail"), necessário ~$(human_bytes "$needed"). Libere espaço antes de continuar."
+    fi
+    log "espaço em disco ok para $label: disponível $(human_bytes "$avail"), necessário ~$(human_bytes "$needed")"
+}
+
 build_jar() {
     log "compilando (pode levar alguns minutos)..."
     (
@@ -155,6 +186,12 @@ run_stg() {
 
     preflight
     parse_db_conf
+
+    local db_size required
+    db_size=$(db_size_bytes)
+    required=$((db_size * 3 / 2 + 500 * 1024 * 1024))
+    require_disk_space "$required" "clonar $DB_NAME -> $STG_DB_NAME (tamanho atual: $(human_bytes "$db_size"))"
+
     build_jar
 
     log "clonando $DB_NAME -> $STG_DB_NAME (não toca no banco de produção)..."
@@ -256,6 +293,12 @@ restore_release() {
 run_prod() {
     preflight
     parse_db_conf
+
+    local db_size required
+    db_size=$(db_size_bytes)
+    required=$((db_size / 2 + 1024 * 1024 * 1024))
+    require_disk_space "$required" "backup do banco $DB_NAME + release novo (tamanho atual do banco: $(human_bytes "$db_size"))"
+
     build_jar
 
     cat <<EOF
