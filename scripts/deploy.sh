@@ -160,7 +160,7 @@ run_stg() {
     log "clonando $DB_NAME -> $STG_DB_NAME (não toca no banco de produção)..."
     export MYSQL_PWD="$DB_PASS"
     mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME; CREATE DATABASE $STG_DB_NAME;"
-    mysqldump -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
+    mysqldump --no-tablespaces -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
     unset MYSQL_PWD
 
     log "montando ambiente de staging em $STG_HOME..."
@@ -279,7 +279,7 @@ EOF
 
     log "backup do banco $DB_NAME..."
     export MYSQL_PWD="$DB_PASS"
-    mysqldump -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | gzip > "$BACKUP_ROOT/traccar_$ts.sql.gz"
+    mysqldump --no-tablespaces -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | gzip > "$BACKUP_ROOT/traccar_$ts.sql.gz"
     unset MYSQL_PWD
     [ -s "$BACKUP_ROOT/traccar_$ts.sql.gz" ] || die "dump do banco ficou vazio, abortando antes de qualquer mudança"
     log "backup do banco ok: $BACKUP_ROOT/traccar_$ts.sql.gz"
