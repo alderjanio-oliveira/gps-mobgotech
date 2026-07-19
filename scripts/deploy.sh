@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+#
+# Deploy script for the go-nansen Traccar fork.
+#
+# Run from inside the cloned repo on the droplet:
+#   ./scripts/deploy.sh --stg     dry-run against a throwaway copy of the prod DB, no prod service touched
+#   ./scripts/deploy.sh --prod    real upgrade of the running /opt/traccar install
+#   ./scripts/deploy.sh --rollback [TIMESTAMP]   restore jar/lib/schema/templates from a prior backup
+#
+# Only tracker-server.jar, lib/, schema/*.xml and templates/**/*.vm are ever touched on the
+# target install. conf/traccar.xml, jre/, web/ and the database's existing tables are never
+# modified by this script (the migration this repo ships only ADDS new tables).
+
+set -euo pipefail
+
+TRACCAR_HOME="${TRACCAR_HOME:-/opt/traccar}"
+SERVICE_NAME="${SERVICE_NAME:-traccar}"
+STG_HOME="${STG_HOME:-/opt/traccar-stg}"
+STG_DB_NAME="${STG_DB_NAME:-traccar_stg}"
+STG_PORT="${STG_PORT:-8083}"
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-90}"
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONF_FILE="$TRACCAR_HOME/conf/traccar.xml"
+BACKUP_ROOT="$TRACCAR_HOME/backups"
+
+log()  { printf '\033[1;34m[deploy]\033[0m %s\n' "$*"; }
+warn() { printf '\033[1;33m[deploy]\033[0m %s\n' "$*" >&2; }
+die()  { printf '\033[1;31m[deploy]\033[0m %s\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+Usage: $0 --stg | --stg-stop | --prod | --rollback [TIMESTAMP]
+
+  --stg        Build the jar, clone the prod DB into a throwaway '$STG_DB_NAME'
+               database, boot the new jar on port $STG_PORT against that copy,
+               health-check it, then leave it running for manual validation.
+               Never touches the running prod service or the real database.
+  --stg-stop   Kill the staging process and drop the '$STG_DB_NAME' database.
+  --prod       Build the jar, back up the DB and the current release files,
+               stop $SERVICE_NAME, swap in the new jar/lib/schema/templates,
+               start $SERVICE_NAME, health-check it, auto-rollback on failure.
+  --rollback   Restore jar/lib/schema/templates from a previous --prod backup.
+               Defaults to the most recent backup if TIMESTAMP is omitted.
+EOF
+}
+
+# ---------- shared helpers ----------
+
+conf_value() {
+    grep -oP "(?<=key='$1'>)[^<]*" "$CONF_FILE" | head -n1
+}
+
+require_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "comando obrigatório não encontrado: $1"
+}
+
+preflight() {
+    [ -f "$REPO_DIR/build.gradle" ] || die "rode este script de dentro do repositório clonado (build.gradle não encontrado)"
+    [ -f "$CONF_FILE" ] || die "config de produção não encontrada em $CONF_FILE (TRACCAR_HOME=$TRACCAR_HOME está certo?)"
+    [ -x "$TRACCAR_HOME/jre/bin/java" ] || die "JRE embutido não encontrado em $TRACCAR_HOME/jre/bin/java"
+
+    local runtime_version
+    runtime_version=$("$TRACCAR_HOME/jre/bin/java" -version 2>&1 | grep -oP '"\K[0-9]+' | head -n1)
+    [ "$runtime_version" -ge 21 ] || die "JRE embutido é Java $runtime_version, o build exige 21+. Atualize $TRACCAR_HOME/jre antes de continuar (fora do escopo deste script)."
+
+    require_cmd mysqldump
+    require_cmd mysql
+    require_cmd curl
+    require_cmd rsync
+
+    if ! (cd "$REPO_DIR" && [ -n "${BUILD_JAVA_HOME:-}" ] && export JAVA_HOME="$BUILD_JAVA_HOME"; ./gradlew -v) >/dev/null 2>&1; then
+        die "não achei um JDK 21+ para compilar. Instale com 'sudo apt install openjdk-21-jdk-headless' e/ou exporte BUILD_JAVA_HOME."
+    fi
+}
+
+parse_db_conf() {
+    DB_URL=$(conf_value "database.url")
+    DB_USER=$(conf_value "database.user")
+    DB_PASS=$(conf_value "database.password")
+    WEB_PORT=$(conf_value "web.port")
+    [ -n "$DB_URL" ] && [ -n "$DB_USER" ] || die "não consegui ler database.url/database.user de $CONF_FILE"
+
+    DB_HOST=$(echo "$DB_URL" | sed -E 's#jdbc:mysql://([^/:]+).*#\1#')
+    DB_NAME=$(echo "$DB_URL" | sed -E 's#jdbc:mysql://[^/]+/([^?]+).*#\1#')
+    [ -n "$DB_HOST" ] && [ -n "$DB_NAME" ] || die "não consegui extrair host/nome do banco de database.url"
+}
+
+build_jar() {
+    log "compilando (pode levar alguns minutos)..."
+    (
+        cd "$REPO_DIR"
+        [ -n "${BUILD_JAVA_HOME:-}" ] && export JAVA_HOME="$BUILD_JAVA_HOME"
+        ./gradlew assemble -x test -x checkstyleMain -x checkstyleTest
+    )
+    [ -f "$REPO_DIR/target/tracker-server.jar" ] || die "build não gerou target/tracker-server.jar"
+    log "build ok: $REPO_DIR/target/tracker-server.jar"
+}
+
+wait_for_health() {
+    local url="$1" timeout="$2" waited=0
+    log "aguardando $url responder (timeout ${timeout}s)..."
+    while [ "$waited" -lt "$timeout" ]; do
+        if curl -sf -o /dev/null "$url"; then
+            log "respondeu OK após ${waited}s"
+            return 0
+        fi
+        sleep 3
+        waited=$((waited + 3))
+    done
+    return 1
+}
+
+# ---------- --stg ----------
+
+run_stg() {
+    if [ -f "$STG_HOME/pid" ] && kill -0 "$(cat "$STG_HOME/pid")" 2>/dev/null; then
+        die "já tem um staging rodando (PID $(cat "$STG_HOME/pid")). Rode ./scripts/deploy.sh --stg-stop primeiro."
+    fi
+
+    preflight
+    parse_db_conf
+    build_jar
+
+    log "clonando $DB_NAME -> $STG_DB_NAME (não toca no banco de produção)..."
+    export MYSQL_PWD="$DB_PASS"
+    mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME; CREATE DATABASE $STG_DB_NAME;"
+    mysqldump -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
+    unset MYSQL_PWD
+
+    log "montando ambiente de staging em $STG_HOME..."
+    rm -rf "$STG_HOME"
+    mkdir -p "$STG_HOME/conf"
+    cp "$REPO_DIR/target/tracker-server.jar" "$STG_HOME/"
+    cp -r "$REPO_DIR/target/lib" "$STG_HOME/"
+    cp -r "$REPO_DIR/schema" "$STG_HOME/"
+    cp -r "$REPO_DIR/templates" "$STG_HOME/"
+
+    # staging aponta pro banco clonado, porta separada, e SEM notificadores reais
+    # (o banco clonado tem emails/telegram/chatId reais de usuários de produção)
+    sed \
+        -e "s#\(database.url'>jdbc:mysql://[^/]*/\)$DB_NAME#\1$STG_DB_NAME#" \
+        -e "s#\(web.port'>\)[0-9]*#\1$STG_PORT#" \
+        -e "s#\(notificator.types'>\)[^<]*#\1#" \
+        "$CONF_FILE" > "$STG_HOME/conf/traccar.xml"
+
+    log "subindo jar novo em staging (porta $STG_PORT)..."
+    (cd "$STG_HOME" && nohup "$TRACCAR_HOME/jre/bin/java" -jar tracker-server.jar conf/traccar.xml \
+        > "$STG_HOME/boot.log" 2>&1 & echo $! > "$STG_HOME/pid")
+    STG_PID=$(cat "$STG_HOME/pid")
+
+    if wait_for_health "http://localhost:$STG_PORT/api/server" "$HEALTH_TIMEOUT"; then
+        cat <<EOF
+
+STAGING OK — migration + boot com o jar novo funcionaram contra uma cópia real do banco.
+Log completo: $STG_HOME/boot.log
+
+Fica rodando em background (PID $STG_PID) pra você validar manualmente:
+  - de dentro do droplet:  curl http://localhost:$STG_PORT/api/server
+  - do seu computador:     ssh -L $STG_PORT:localhost:$STG_PORT $(whoami)@<este-host>
+                            depois abra http://localhost:$STG_PORT no navegador
+  - login: mesmo usuário/senha de produção (é uma cópia do banco real)
+
+Quando terminar de validar, encerre com:
+  ./scripts/deploy.sh --stg-stop
+EOF
+    else
+        warn "STAGING FALHOU — confira $STG_HOME/boot.log antes de tentar --prod"
+        kill "$STG_PID" 2>/dev/null || true
+        die "staging não respondeu dentro de ${HEALTH_TIMEOUT}s"
+    fi
+}
+
+run_stg_stop() {
+    if [ -f "$STG_HOME/pid" ]; then
+        local pid
+        pid=$(cat "$STG_HOME/pid")
+        kill "$pid" 2>/dev/null || true
+        log "processo de staging (PID $pid) encerrado."
+    else
+        warn "nenhum pid de staging encontrado em $STG_HOME/pid"
+    fi
+
+    if [ -f "$CONF_FILE" ]; then
+        DB_USER=$(conf_value "database.user")
+        DB_HOST=$(conf_value "database.url" | sed -E 's#jdbc:mysql://([^/:]+).*#\1#')
+        export MYSQL_PWD="$(conf_value "database.password")"
+        if ! mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME;"; then
+            warn "não consegui derrubar o banco $STG_DB_NAME, remova manualmente depois"
+        fi
+        unset MYSQL_PWD
+    fi
+
+    rm -rf "$STG_HOME"
+    log "$STG_HOME removido."
+}
+
+# ---------- --prod ----------
+
+backup_release() {
+    local ts="$1"
+    local dir="$BACKUP_ROOT/release_$ts"
+    mkdir -p "$dir"
+    cp "$TRACCAR_HOME/tracker-server.jar" "$dir/"
+    cp -r "$TRACCAR_HOME/lib" "$dir/"
+    cp -r "$TRACCAR_HOME/schema" "$dir/"
+    cp -r "$TRACCAR_HOME/templates" "$dir/"
+    echo "$dir"
+}
+
+restore_release() {
+    local dir="$1"
+    [ -d "$dir" ] || die "backup não encontrado: $dir"
+    log "restaurando release de $dir..."
+    cp "$dir/tracker-server.jar" "$TRACCAR_HOME/"
+    rsync -a --delete "$dir/lib/" "$TRACCAR_HOME/lib/"
+    rsync -a --delete "$dir/schema/" "$TRACCAR_HOME/schema/"
+    rsync -a --delete "$dir/templates/" "$TRACCAR_HOME/templates/"
+}
+
+run_prod() {
+    preflight
+    parse_db_conf
+    build_jar
+
+    cat <<EOF
+
+Isso vai:
+  1. Fazer backup do banco '$DB_NAME' e do release atual em $BACKUP_ROOT
+  2. Parar o serviço '$SERVICE_NAME'
+  3. Trocar tracker-server.jar, lib/, schema/*.xml e templates/**/*.vm
+  4. Subir o serviço de novo e validar que respondeu
+  5. Se falhar, reverter sozinho pro jar/schema/templates anteriores
+
+conf/traccar.xml, jre/, web/ e as tabelas já existentes do banco NÃO são tocados.
+
+EOF
+    read -r -p "Digite CONFIRMAR para prosseguir: " confirm
+    [ "$confirm" = "CONFIRMAR" ] || die "abortado pelo operador"
+
+    local ts
+    ts=$(date -u +%Y%m%dT%H%M%SZ)
+    mkdir -p "$BACKUP_ROOT"
+
+    log "backup do banco $DB_NAME..."
+    export MYSQL_PWD="$DB_PASS"
+    mysqldump -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | gzip > "$BACKUP_ROOT/traccar_$ts.sql.gz"
+    unset MYSQL_PWD
+    [ -s "$BACKUP_ROOT/traccar_$ts.sql.gz" ] || die "dump do banco ficou vazio, abortando antes de qualquer mudança"
+    log "backup do banco ok: $BACKUP_ROOT/traccar_$ts.sql.gz"
+
+    local release_backup
+    release_backup=$(backup_release "$ts")
+    log "backup do release atual ok: $release_backup"
+
+    log "parando $SERVICE_NAME..."
+    systemctl stop "$SERVICE_NAME"
+
+    cp "$REPO_DIR/target/tracker-server.jar" "$TRACCAR_HOME/"
+    rsync -a --delete "$REPO_DIR/target/lib/" "$TRACCAR_HOME/lib/"
+    rsync -a --delete "$REPO_DIR/schema/" "$TRACCAR_HOME/schema/"
+    rsync -a --delete "$REPO_DIR/templates/" "$TRACCAR_HOME/templates/"
+
+    log "subindo $SERVICE_NAME..."
+    systemctl start "$SERVICE_NAME"
+
+    if wait_for_health "http://localhost:$WEB_PORT/api/server" "$HEALTH_TIMEOUT"; then
+        log "DEPLOY OK. Backup do banco: $BACKUP_ROOT/traccar_$ts.sql.gz — Backup do release: $release_backup"
+    else
+        warn "healthcheck falhou, revertendo automaticamente para o release anterior..."
+        systemctl stop "$SERVICE_NAME" || true
+        restore_release "$release_backup"
+        systemctl start "$SERVICE_NAME"
+        if wait_for_health "http://localhost:$WEB_PORT/api/server" "$HEALTH_TIMEOUT"; then
+            die "ROLLBACK EXECUTADO com sucesso. O deploy novo NÃO subiu, mas o serviço está de volta ao estado anterior. Veja: journalctl -u $SERVICE_NAME -n 200"
+        else
+            die "ROLLBACK TAMBÉM FALHOU. Intervenção manual necessária. Backups em $release_backup e $BACKUP_ROOT/traccar_$ts.sql.gz"
+        fi
+    fi
+}
+
+# ---------- --rollback ----------
+
+run_rollback() {
+    local ts="${1:-}"
+    local dir
+    if [ -z "$ts" ]; then
+        dir=$(ls -1dt "$BACKUP_ROOT"/release_*/ 2>/dev/null | head -n1)
+        [ -n "$dir" ] || die "nenhum backup encontrado em $BACKUP_ROOT"
+    else
+        dir="$BACKUP_ROOT/release_$ts"
+    fi
+
+    read -r -p "Vou reverter $SERVICE_NAME para o release em $dir. Digite CONFIRMAR: " confirm
+    [ "$confirm" = "CONFIRMAR" ] || die "abortado pelo operador"
+
+    systemctl stop "$SERVICE_NAME"
+    restore_release "$dir"
+    systemctl start "$SERVICE_NAME"
+
+    local web_port
+    web_port=$(conf_value "web.port")
+    if wait_for_health "http://localhost:${web_port:-8082}/api/server" "$HEALTH_TIMEOUT"; then
+        log "rollback concluído e serviço respondendo."
+    else
+        die "rollback aplicado mas o serviço não respondeu — cheque journalctl -u $SERVICE_NAME"
+    fi
+}
+
+# ---------- entrypoint ----------
+
+case "${1:-}" in
+    --stg) run_stg ;;
+    --stg-stop) run_stg_stop ;;
+    --prod) run_prod ;;
+    --rollback) run_rollback "${2:-}" ;;
+    *) usage; exit 1 ;;
+esac
