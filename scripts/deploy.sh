@@ -202,7 +202,7 @@ run_stg() {
 
     log "montando ambiente de staging em $STG_HOME..."
     rm -rf "$STG_HOME"
-    mkdir -p "$STG_HOME/conf"
+    mkdir -p "$STG_HOME/conf" "$STG_HOME/logs" "$STG_HOME/data"
     cp "$REPO_DIR/target/tracker-server.jar" "$STG_HOME/"
     cp -r "$REPO_DIR/target/lib" "$STG_HOME/"
     cp -r "$REPO_DIR/schema" "$STG_HOME/"
