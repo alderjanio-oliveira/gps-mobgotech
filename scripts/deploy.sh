@@ -61,14 +61,39 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "comando obrigatório não encontrado: $1"
 }
 
+# Descobre qual binário java o serviço realmente usa (JRE embutido em $TRACCAR_HOME/jre,
+# ou o java do sistema, como no ExecStart=/usr/bin/java ... da unit systemd). Não assume
+# o layout oficial do instalador — cada instalação pode ter feito diferente.
+detect_runtime_java() {
+    if [ -n "${RUNTIME_JAVA_BIN:-}" ]; then
+        echo "$RUNTIME_JAVA_BIN"
+        return
+    fi
+    if [ -x "$TRACCAR_HOME/jre/bin/java" ]; then
+        echo "$TRACCAR_HOME/jre/bin/java"
+        return
+    fi
+    local from_unit
+    from_unit=$(systemctl cat "$SERVICE_NAME" 2>/dev/null | grep -oP '(?<=^ExecStart=)\S+' | head -n1)
+    if [ -n "$from_unit" ] && [ -x "$from_unit" ]; then
+        echo "$from_unit"
+        return
+    fi
+    command -v java 2>/dev/null || true
+}
+
 preflight() {
     [ -f "$REPO_DIR/build.gradle" ] || die "rode este script de dentro do repositório clonado (build.gradle não encontrado)"
     [ -f "$CONF_FILE" ] || die "config de produção não encontrada em $CONF_FILE (TRACCAR_HOME=$TRACCAR_HOME está certo?)"
-    [ -x "$TRACCAR_HOME/jre/bin/java" ] || die "JRE embutido não encontrado em $TRACCAR_HOME/jre/bin/java"
+
+    RUNTIME_JAVA_BIN=$(detect_runtime_java)
+    [ -n "$RUNTIME_JAVA_BIN" ] && [ -x "$RUNTIME_JAVA_BIN" ] \
+        || die "não encontrei o java usado pelo serviço $SERVICE_NAME. Exporte RUNTIME_JAVA_BIN=/caminho/pro/java e rode de novo."
+    log "runtime java detectado: $RUNTIME_JAVA_BIN"
 
     local runtime_version
-    runtime_version=$("$TRACCAR_HOME/jre/bin/java" -version 2>&1 | grep -oP '"\K[0-9]+' | head -n1)
-    [ "$runtime_version" -ge 21 ] || die "JRE embutido é Java $runtime_version, o build exige 21+. Atualize $TRACCAR_HOME/jre antes de continuar (fora do escopo deste script)."
+    runtime_version=$("$RUNTIME_JAVA_BIN" -version 2>&1 | grep -oP '"\K[0-9]+' | head -n1)
+    [ "$runtime_version" -ge 21 ] || die "$RUNTIME_JAVA_BIN é Java $runtime_version, o build exige 21+. Atualize o runtime antes de continuar (fora do escopo deste script)."
 
     require_cmd mysqldump
     require_cmd mysql
@@ -151,7 +176,7 @@ run_stg() {
         "$CONF_FILE" > "$STG_HOME/conf/traccar.xml"
 
     log "subindo jar novo em staging (porta $STG_PORT)..."
-    (cd "$STG_HOME" && nohup "$TRACCAR_HOME/jre/bin/java" -jar tracker-server.jar conf/traccar.xml \
+    (cd "$STG_HOME" && nohup "$RUNTIME_JAVA_BIN" -jar tracker-server.jar conf/traccar.xml \
         > "$STG_HOME/boot.log" 2>&1 & echo $! > "$STG_HOME/pid")
     STG_PID=$(cat "$STG_HOME/pid")
 

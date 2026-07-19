@@ -37,8 +37,8 @@ Todo o deploy é feito pelo [`scripts/deploy.sh`](scripts/deploy.sh), rodado **d
 
 ### Pré-requisitos no droplet
 
-- Instalação Traccar já existente em `/opt/traccar` (`conf/traccar.xml`, JRE embutido em `jre/`, `schema/`, `templates/`, `web/`).
-- JRE embutido em `/opt/traccar/jre` precisa ser Java 21+ (o script valida e aborta se não for).
+- Instalação Traccar já existente em `/opt/traccar` (`conf/traccar.xml`, `schema/`, `templates/`, `web/`, `tracker-server.jar`).
+- Um runtime Java 21+ pra rodar o jar — o script detecta sozinho qual é (JRE embutido em `/opt/traccar/jre` se existir, senão o `ExecStart` da unit systemd do serviço, senão o `java` do PATH) e aborta se a versão for menor que 21. Pra forçar um binário específico, exporte `RUNTIME_JAVA_BIN=/caminho/pro/java`.
 - Um JDK 21+ separado só para compilar (`javac`/gradle) — `sudo apt install openjdk-21-jdk-headless` se faltar. Pode apontar pra um JDK específico com a env var `BUILD_JAVA_HOME`.
 - Node.js 20+ e `npm`, só necessário pras flags `--web`/`--web-rollback` (compilação do `traccar-web`).
 - `mysql`, `mysqldump`, `curl`, `rsync` disponíveis no PATH.
@@ -47,7 +47,7 @@ Todo o deploy é feito pelo [`scripts/deploy.sh`](scripts/deploy.sh), rodado **d
 
 Não existe ambiente de staging separado — o próprio script simula um no mesmo droplet, clonando o banco de produção pra um banco descartável.
 
-1. **`./scripts/deploy.sh --stg`** — compila o jar, clona o banco `traccar` real pra um banco `traccar_stg` (mesmo MySQL, banco separado), sobe o jar novo na porta `8083` usando o mesmo JRE embutido de produção, com **notificadores desligados** (evita mandar email/Telegram real durante o teste, já que o banco clonado tem dados reais de usuários). Faz um healthcheck automático e, se passar, **deixa o processo rodando** pra validação manual — não mata sozinho.
+1. **`./scripts/deploy.sh --stg`** — compila o jar, clona o banco `traccar` real pra um banco `traccar_stg` (mesmo MySQL, banco separado), sobe o jar novo na porta `8083` usando o mesmo runtime java de produção, com **notificadores desligados** (evita mandar email/Telegram real durante o teste, já que o banco clonado tem dados reais de usuários). Faz um healthcheck automático e, se passar, **deixa o processo rodando** pra validação manual — não mata sozinho.
 2. **Validar manualmente** (opcional): de dentro do droplet, `curl http://localhost:8083/api/server`. Do seu computador, sem abrir porta nenhuma no firewall:
    ```
    ssh -L 8083:localhost:8083 usuario@gps.mobgotech.com
@@ -78,6 +78,7 @@ O front (`traccar-web`) é servido como arquivos estáticos direto de `/opt/trac
 | `STG_PORT` | `8083` | porta da staging |
 | `HEALTH_TIMEOUT` | `90` (segundos) | tempo máximo esperando o healthcheck |
 | `BUILD_JAVA_HOME` | (herda do ambiente) | JDK usado só pra compilar, se diferente do `JAVA_HOME` padrão |
+| `RUNTIME_JAVA_BIN` | (auto-detectado) | força qual `java` roda o jar, se a detecção automática (JRE embutido → `ExecStart` do systemd → `java` do PATH) não achar o certo |
 
 ### Segurança
 
