@@ -33,7 +33,6 @@ import org.traccar.notificators.NotificatorWeb;
 
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -62,7 +61,12 @@ public class NotificatorManager {
         this.injector = injector;
         String types = config.getString(Keys.NOTIFICATOR_TYPES);
         if (types != null) {
-            this.types.addAll(Arrays.asList(types.split(",")));
+            for (String type : types.split(",")) {
+                String trimmed = type.trim();
+                if (NOTIFICATORS_ALL.containsKey(trimmed)) {
+                    this.types.add(trimmed);
+                }
+            }
         }
     }
 
