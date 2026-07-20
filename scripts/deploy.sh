@@ -497,7 +497,8 @@ run_web() {
 
     log "instalando dependências e compilando o front (traccar-web)..."
     (cd "$web_project" && npm ci && npm run build)
-    [ -d "$web_project/dist" ] || die "build não gerou $web_project/dist"
+    # o outDir do Vite nesse projeto é "build" (vite.config.js), não o "dist" padrão
+    [ -d "$web_project/build" ] || die "build não gerou $web_project/build"
 
     local ts dir
     ts=$(date -u +%Y%m%dT%H%M%SZ)
@@ -506,7 +507,7 @@ run_web() {
     cp -r "$TRACCAR_HOME/web/." "$dir/"
     log "backup do web/ atual: $dir"
 
-    rsync -a --delete "$web_project/dist/" "$TRACCAR_HOME/web/"
+    rsync -a --delete "$web_project/build/" "$TRACCAR_HOME/web/"
     log "WEB OK — front atualizado em $TRACCAR_HOME/web (nenhum serviço foi reiniciado)."
     log "peça pra quem for validar dar um hard-refresh (Ctrl+Shift+R) por causa do cache do navegador."
     log "pra reverter: ./scripts/deploy.sh --web-rollback $ts"

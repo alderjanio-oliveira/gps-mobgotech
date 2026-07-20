@@ -67,7 +67,7 @@ Não existe ambiente de staging separado — o próprio script simula um no mesm
 
 O front (`traccar-web`) é servido como arquivos estáticos direto de `/opt/traccar/web/` pelo Jetty (lidos do disco a cada request) — **não precisa reiniciar o serviço** pra uma troca de front valer.
 
-1. **`./scripts/deploy.sh --web`** — roda `npm ci && npm run build` dentro de `traccar-web/`, faz backup do `web/` atual em `/opt/traccar/backups/web_<timestamp>/`, e sincroniza (`rsync -a --delete`) o build novo (`traccar-web/dist/`) pra `/opt/traccar/web/`. Nenhum serviço é parado ou reiniciado. Depois de rodar, peça pra quem for validar dar um hard-refresh (Ctrl+Shift+R) — o navegador pode segurar a versão antiga em cache.
+1. **`./scripts/deploy.sh --web`** — roda `npm ci && npm run build` dentro de `traccar-web/`, faz backup do `web/` atual em `/opt/traccar/backups/web_<timestamp>/`, e sincroniza (`rsync -a --delete`) o build novo (`traccar-web/build/` — o `outDir` configurado no `vite.config.js` desse projeto, não o `dist` padrão) pra `/opt/traccar/web/`. Nenhum serviço é parado ou reiniciado. Depois de rodar, peça pra quem for validar dar um hard-refresh (Ctrl+Shift+R) — o navegador pode segurar a versão antiga em cache.
 2. **`./scripts/deploy.sh --web-rollback [TIMESTAMP]`** — restaura `web/` a partir de um backup anterior (pede confirmação). Sem `TIMESTAMP`, usa o mais recente.
 
 ### Variáveis de ambiente (todas opcionais, com default sensato)
