@@ -260,8 +260,11 @@ run_stg() {
         log "não infla o binlog. Pra clonar com dados completos: STG_FULL_DATA=true ./scripts/deploy.sh --stg)"
         {
             mysqldump --no-tablespaces --no-data -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
+            # dados de verdade só das tabelas de controle: histórico do Liquibase +
+            # tc_servers (config global, sempre 1 linha — sem ela cacheManager.getServer()
+            # retorna null e QUALQUER request, incluindo o healthcheck, quebra com 500).
             mysqldump --no-tablespaces --no-create-info -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" \
-                DATABASECHANGELOG DATABASECHANGELOGLOCK
+                DATABASECHANGELOG DATABASECHANGELOGLOCK tc_servers
         } | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
     fi
     unset MYSQL_PWD
