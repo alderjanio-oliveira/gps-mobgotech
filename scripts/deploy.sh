@@ -300,7 +300,8 @@ run_stg() {
         cat <<EOF
 
 STAGING OK — migration + boot com o jar novo funcionaram.
-Log completo: $STG_HOME/boot.log
+Log do Liquibase/console: $STG_HOME/boot.log
+Log da aplicação:         $STG_HOME/logs/tracker-server.log
 
 Fica rodando em background (PID $STG_PID) pra você validar manualmente:
   - de dentro do droplet:  curl http://localhost:$STG_PORT/api/server
@@ -312,11 +313,15 @@ Quando terminar de validar, encerre com:
   ./scripts/deploy.sh --stg-stop
 EOF
     else
-        local saved_log
-        saved_log="$BACKUP_ROOT/stg-boot-$(date -u +%Y%m%dT%H%M%SZ).log"
-        mkdir -p "$BACKUP_ROOT"
-        cp "$STG_HOME/boot.log" "$saved_log" 2>/dev/null || true
-        warn "STAGING FALHOU — log salvo em $saved_log"
+        local saved_dir
+        saved_dir="$BACKUP_ROOT/stg-boot-$(date -u +%Y%m%dT%H%M%SZ)"
+        mkdir -p "$saved_dir"
+        cp "$STG_HOME/boot.log" "$saved_dir/" 2>/dev/null || true
+        # boot.log só tem o que o Liquibase imprime direto no console — o log de verdade
+        # da aplicação (WebServer subindo, erros de startup, etc) vai pro arquivo abaixo,
+        # não pro stdout. Preservar os dois antes de limpar o staging.
+        cp -r "$STG_HOME/logs" "$saved_dir/" 2>/dev/null || true
+        warn "STAGING FALHOU — logs salvos em $saved_dir (boot.log + logs/)"
         cleanup_stg
         die "staging não respondeu dentro de ${HEALTH_TIMEOUT}s (banco $STG_DB_NAME e $STG_HOME já foram limpos, sem deixar lixo em disco)"
     fi
