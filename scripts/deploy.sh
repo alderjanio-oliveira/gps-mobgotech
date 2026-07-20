@@ -35,10 +35,11 @@ usage() {
     cat <<EOF
 Usage: $0 --stg | --stg-stop | --prod | --rollback [TIMESTAMP] | --web | --web-rollback [TIMESTAMP]
 
-  --stg          Build the jar, clone the prod DB into a throwaway '$STG_DB_NAME'
-                 database, boot the new jar on port $STG_PORT against that copy,
-                 health-check it, then leave it running for manual validation.
-                 Never touches the running prod service or the real database.
+  --stg          Build the jar, clone the prod DB schema + Liquibase history (no table
+                 data by default — set STG_FULL_DATA=true for a full data clone) into
+                 a throwaway '$STG_DB_NAME' database, boot the new jar on port
+                 $STG_PORT against that copy, health-check it, then leave it running
+                 for manual validation. Never touches the running prod service or DB.
   --stg-stop     Kill the staging process and drop the '$STG_DB_NAME' database.
   --prod         Build the jar, back up the DB and the current release files,
                  stop $SERVICE_NAME, swap in the new jar/lib/schema/templates,
@@ -238,15 +239,31 @@ run_stg() {
 
     local db_size required
     db_size=$(db_size_bytes)
-    required=$((db_size * 3 / 2 + 500 * 1024 * 1024))
-    require_disk_space "$required" "clonar $DB_NAME -> $STG_DB_NAME (tamanho atual: $(human_bytes "$db_size"))"
+    if [ "${STG_FULL_DATA:-false}" = "true" ]; then
+        required=$((db_size * 3 / 2 + 500 * 1024 * 1024))
+        require_disk_space "$required" "clonar $DB_NAME -> $STG_DB_NAME com dados completos (tamanho atual: $(human_bytes "$db_size"))"
+    else
+        required=$((300 * 1024 * 1024))
+        require_disk_space "$required" "clonar $DB_NAME -> $STG_DB_NAME (só schema + histórico do Liquibase, sem dados)"
+    fi
 
     build_jar
 
-    log "clonando $DB_NAME -> $STG_DB_NAME (não toca no banco de produção)..."
     export MYSQL_PWD="$DB_PASS"
     mysql -h "$DB_HOST" -u "$DB_USER" -e "DROP DATABASE IF EXISTS $STG_DB_NAME; CREATE DATABASE $STG_DB_NAME;"
-    mysqldump --no-tablespaces -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
+    if [ "${STG_FULL_DATA:-false}" = "true" ]; then
+        log "clonando $DB_NAME -> $STG_DB_NAME com dados completos (STG_FULL_DATA=true)..."
+        mysqldump --no-tablespaces -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" \
+            | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
+    else
+        log "clonando $DB_NAME -> $STG_DB_NAME (só schema + histórico do Liquibase — sem tc_positions/tc_events etc,"
+        log "não infla o binlog. Pra clonar com dados completos: STG_FULL_DATA=true ./scripts/deploy.sh --stg)"
+        {
+            mysqldump --no-tablespaces --no-data -h "$DB_HOST" -u "$DB_USER" "$DB_NAME"
+            mysqldump --no-tablespaces --no-create-info -h "$DB_HOST" -u "$DB_USER" "$DB_NAME" \
+                DATABASECHANGELOG DATABASECHANGELOGLOCK
+        } | mysql -h "$DB_HOST" -u "$DB_USER" "$STG_DB_NAME"
+    fi
     unset MYSQL_PWD
 
     fix_changelog_6130 "$STG_DB_NAME"
@@ -273,16 +290,23 @@ run_stg() {
     STG_PID=$(cat "$STG_HOME/pid")
 
     if wait_for_health "http://localhost:$STG_PORT/api/server" "$HEALTH_TIMEOUT"; then
+        local login_hint
+        if [ "${STG_FULL_DATA:-false}" = "true" ]; then
+            login_hint="  - login: mesmo usuário/senha de produção (clone com dados completos)"
+        else
+            login_hint="  - sem usuários pra logar (clone só de schema, sem dados) — isso valida boot + migration,
+    não a tela. Pra clonar com dados de verdade: STG_FULL_DATA=true ./scripts/deploy.sh --stg"
+        fi
         cat <<EOF
 
-STAGING OK — migration + boot com o jar novo funcionaram contra uma cópia real do banco.
+STAGING OK — migration + boot com o jar novo funcionaram.
 Log completo: $STG_HOME/boot.log
 
 Fica rodando em background (PID $STG_PID) pra você validar manualmente:
   - de dentro do droplet:  curl http://localhost:$STG_PORT/api/server
   - do seu computador:     ssh -L $STG_PORT:localhost:$STG_PORT $(whoami)@<este-host>
                             depois abra http://localhost:$STG_PORT no navegador
-  - login: mesmo usuário/senha de produção (é uma cópia do banco real)
+$login_hint
 
 Quando terminar de validar, encerre com:
   ./scripts/deploy.sh --stg-stop
