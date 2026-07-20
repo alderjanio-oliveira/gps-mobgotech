@@ -275,6 +275,10 @@ run_stg() {
     cp -r "$REPO_DIR/target/lib" "$STG_HOME/"
     cp -r "$REPO_DIR/schema" "$STG_HOME/"
     cp -r "$REPO_DIR/templates" "$STG_HOME/"
+    # WebServer resolve web.path (default "./web") com toRealPath() e quebra com
+    # NoSuchFileException se a pasta não existir — não precisamos testar o front aqui,
+    # só apontar pra um web/ real já existente (o de produção serve bem).
+    cp -r "$TRACCAR_HOME/web" "$STG_HOME/"
 
     # staging aponta pro banco clonado, porta separada, e SEM notificadores reais
     # (o banco clonado tem emails/telegram/chatId reais de usuários de produção)
