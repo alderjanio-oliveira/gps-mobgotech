@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.14.1">
+
+  <changeSet author="author" id="changelog-6.14.1">
+
+    <!-- Event.distanceReminderId (Event.java) precisa dessa coluna em tc_events, igual
+         maintenanceid já existe pra Event.maintenanceId. Faltou no changelog-6.14.0 e
+         quebrava TODO save de evento (não só o nosso) com
+         "Unknown column 'distanceReminderId' in 'field list'". -->
+    <addColumn tableName="tc_events">
+      <column name="distancereminderid" type="INT" defaultValueNumeric="0" />
+    </addColumn>
+
+  </changeSet>
+
+</databaseChangeLog>
