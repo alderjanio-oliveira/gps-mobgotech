@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                      http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.4.xsd"
+  logicalFilePath="changelog-6.14.2">
+
+  <changeSet author="author" id="changelog-6.14.2">
+
+    <!-- BaseObjectResource.add() vincula automaticamente o usuário que criou o
+         registro (storage.addPermission(new Permission(User.class, ..., DistanceReminder.class, ...))).
+         Faltou essa tabela no changelog-6.14.0 (só criamos tc_device_distanceReminder) e
+         quebrava todo POST /api/distancereminders com "Table 'tc_user_distanceReminder' doesn't exist".
+         Nome precisa bater com Permission.getStorageName(User.class, DistanceReminder.class). -->
+    <createTable tableName="tc_user_distanceReminder">
+      <column name="userid" type="INT">
+        <constraints nullable="false" />
+      </column>
+      <column name="distancereminderid" type="INT">
+        <constraints nullable="false" />
+      </column>
+    </createTable>
+
+    <addForeignKeyConstraint baseTableName="tc_user_distanceReminder" baseColumnNames="userid" constraintName="fk_user_distancereminder_userid" onDelete="CASCADE" referencedColumnNames="id" referencedTableName="tc_users" />
+    <addForeignKeyConstraint baseTableName="tc_user_distanceReminder" baseColumnNames="distancereminderid" constraintName="fk_user_distancereminder_distancereminderid" onDelete="CASCADE" referencedColumnNames="id" referencedTableName="tc_distance_reminders" />
+
+  </changeSet>
+
+</databaseChangeLog>
