@@ -16,6 +16,7 @@
 package org.traccar.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.traccar.storage.QueryIgnore;
 import org.traccar.storage.StorageName;
 
@@ -91,6 +92,78 @@ public class Device extends GroupedModel implements Disableable, Schedulable {
 
     public void setPositionId(long positionId) {
         this.positionId = positionId;
+    }
+
+    private String blockState;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockState() {
+        return blockState != null ? blockState : "unknown";
+    }
+
+    public void setBlockState(String blockState) {
+        this.blockState = blockState;
+    }
+
+    private Date blockStateTime;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public Date getBlockStateTime() {
+        return blockStateTime;
+    }
+
+    public void setBlockStateTime(Date blockStateTime) {
+        this.blockStateTime = blockStateTime;
+    }
+
+    private String blockRequestedState;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockRequestedState() {
+        return blockRequestedState;
+    }
+
+    public void setBlockRequestedState(String blockRequestedState) {
+        this.blockRequestedState = blockRequestedState;
+    }
+
+    private Date blockRequestedTime;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public Date getBlockRequestedTime() {
+        return blockRequestedTime;
+    }
+
+    public void setBlockRequestedTime(Date blockRequestedTime) {
+        this.blockRequestedTime = blockRequestedTime;
+    }
+
+    private String blockRequestStatus;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockRequestStatus() {
+        return blockRequestStatus;
+    }
+
+    public void setBlockRequestStatus(String blockRequestStatus) {
+        this.blockRequestStatus = blockRequestStatus;
+    }
+
+    private String blockRequestId;
+
+    @QueryIgnore
+    @JsonIgnore
+    public String getBlockRequestId() {
+        return blockRequestId;
+    }
+
+    public void setBlockRequestId(String blockRequestId) {
+        this.blockRequestId = blockRequestId;
     }
 
     private String phone;

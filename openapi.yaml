@@ -4068,6 +4068,33 @@ components:
           type: [integer, 'null']
           format: int64
           description: Identifier of the last known position
+        blockState:
+          type: string
+          enum: [unknown, blocked, unblocked]
+          readOnly: true
+          description: Last state reported by the tracker; not a guarantee of the current physical relay state.
+        blockStateTime:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: Device time of the last accepted block status report.
+        blockRequestedState:
+          type: [string, 'null']
+          enum: [blocked, unblocked, null]
+          readOnly: true
+          description: Target of the last engineStop or engineResume request.
+        blockRequestedTime:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+        blockRequestStatus:
+          type: [string, 'null']
+          enum: [pending, confirmed, failed, null]
+          readOnly: true
+          description: >-
+            Pending includes queued commands and commands awaiting telemetry. Confirmed means a newer
+            tracker report matched the target, not an execution acknowledgment. Failed means command
+            dispatch raised an error. Null means no tracked request.
         groupId:
           type: [integer, 'null']
           format: int64

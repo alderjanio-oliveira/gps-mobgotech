@@ -50,6 +50,7 @@ import java.util.Map;
 public class CommandsManager implements BroadcastInterface {
 
     private final Storage storage;
+    private final BlockStateManager blockStateManager;
     private final ServerManager serverManager;
     private final SmsManager smsManager;
     private final ConnectionManager connectionManager;
@@ -63,8 +64,9 @@ public class CommandsManager implements BroadcastInterface {
             Storage storage, ServerManager serverManager, @Nullable SmsManager smsManager,
             ConnectionManager connectionManager, BroadcastService broadcastService,
             NotificationManager notificationManager, CacheManager cacheManager,
-            CommandSenderManager commandSenderManager) {
+            CommandSenderManager commandSenderManager, BlockStateManager blockStateManager) {
         this.storage = storage;
+        this.blockStateManager = blockStateManager;
         this.serverManager = serverManager;
         this.smsManager = smsManager;
         this.connectionManager = connectionManager;
@@ -76,6 +78,20 @@ public class CommandsManager implements BroadcastInterface {
     }
 
     public QueuedCommand sendCommand(Command command) throws Exception {
+        String requestId = blockStateManager.request(command);
+        try {
+            return dispatchCommand(command);
+        } catch (Exception e) {
+            try {
+                blockStateManager.failed(command.getDeviceId(), requestId);
+            } catch (StorageException storageError) {
+                e.addSuppressed(storageError);
+            }
+            throw e;
+        }
+    }
+
+    private QueuedCommand dispatchCommand(Command command) throws Exception {
         long deviceId = command.getDeviceId();
         Device device = storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", deviceId)));

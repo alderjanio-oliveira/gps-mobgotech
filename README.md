@@ -110,3 +110,28 @@ O front (`traccar-web`) é servido como arquivos estáticos direto de `/opt/trac
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+### Estado persistente de bloqueio
+
+`GET /api/devices?id=31` retorna campos somente de leitura:
+
+- `blockState`: `unknown`, `blocked` ou `unblocked`, conforme o último informe do rastreador.
+- `blockStateTime`: horário desse informe (UTC), preservado quando novas mensagens omitem `blocked`.
+- `blockRequestedState` e `blockRequestedTime`: alvo e horário da última solicitação `engineStop`/`engineResume`.
+- `blockRequestStatus`: `pending`, `confirmed`, `failed` ou `null` quando ainda não houve solicitação.
+
+`pending` inclui comandos enfileirados e enviados sem confirmação por telemetria. `confirmed` significa
+que um informe posterior à solicitação apresentou o estado desejado; não comprova que aquele comando
+causou a mudança. `failed` indica uma exceção no encaminhamento do comando. Respostas genéricas de
+comando não alteram o estado informado. Comandos personalizados não permitem inferir o estado solicitado.
+
+O aplicativo deve consultar esses campos do dispositivo, em vez de depender exclusivamente de
+`position.attributes.blocked`. Exiba o horário e o estado de conexão junto do último estado conhecido:
+nenhum servidor consegue garantir o estado físico atual de um rastreador sem comunicação.
+
+A migração `changelog-block-state.xml` é aplicada pelo Liquibase na inicialização. Dispositivos existentes
+começam com estado `unknown` até receberem um novo informe explícito de bloqueio; não há varredura do
+histórico de posições. Não é necessário habilitar `processing.copyAttributes` para este recurso.
+O estado é capturado antes dos atributos calculados, da cópia de atributos e dos filtros de posições,
+inclusive quando o veículo está parado. Informes arquivados, com horário futuro ou anteriores ao último
+informe aceito não substituem o estado persistido. Os horários são comparados com precisão de segundos.

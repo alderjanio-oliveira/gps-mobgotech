@@ -40,4 +40,6 @@
   <include file="changelog-6.14.1.xml" relativeToChangelogFile="true" />
   <include file="changelog-6.14.2.xml" relativeToChangelogFile="true" />
 
+  <include file="changelog-block-state.xml" relativeToChangelogFile="true" />
+
 </databaseChangeLog>

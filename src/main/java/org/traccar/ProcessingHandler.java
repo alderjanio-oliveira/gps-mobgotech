@@ -27,6 +27,7 @@ import org.traccar.database.NotificationManager;
 import org.traccar.handler.BasePositionHandler;
 import org.traccar.handler.ComputedAttributesHandler;
 import org.traccar.handler.CopyAttributesHandler;
+import org.traccar.handler.BlockStateHandler;
 import org.traccar.handler.DatabaseHandler;
 import org.traccar.handler.DistanceHandler;
 import org.traccar.handler.DriverHandler;
@@ -101,6 +102,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         bufferingManager = new BufferingManager(config, this);
 
         positionHandlers = Stream.of(
+                BlockStateHandler.class,
                 ComputedAttributesHandler.Early.class,
                 OutdatedHandler.class,
                 TimeHandler.class,
