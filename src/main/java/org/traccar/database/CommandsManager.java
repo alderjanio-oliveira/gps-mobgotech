@@ -1,5 +1,5 @@
 /*
- * Copyright 2017 - 2025 Anton Tananaev (anton@traccar.org)
+ * Copyright 2017 - 2026 Anton Tananaev (anton@traccar.org)
  * Copyright 2017 Andrey Kunitsyn (andrey@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -50,6 +50,7 @@ import java.util.Map;
 public class CommandsManager implements BroadcastInterface {
 
     private final Storage storage;
+    private final BlockStateManager blockStateManager;
     private final ServerManager serverManager;
     private final SmsManager smsManager;
     private final ConnectionManager connectionManager;
@@ -63,8 +64,9 @@ public class CommandsManager implements BroadcastInterface {
             Storage storage, ServerManager serverManager, @Nullable SmsManager smsManager,
             ConnectionManager connectionManager, BroadcastService broadcastService,
             NotificationManager notificationManager, CacheManager cacheManager,
-            CommandSenderManager commandSenderManager) {
+            CommandSenderManager commandSenderManager, BlockStateManager blockStateManager) {
         this.storage = storage;
+        this.blockStateManager = blockStateManager;
         this.serverManager = serverManager;
         this.smsManager = smsManager;
         this.connectionManager = connectionManager;
@@ -76,9 +78,27 @@ public class CommandsManager implements BroadcastInterface {
     }
 
     public QueuedCommand sendCommand(Command command) throws Exception {
+        String requestId = blockStateManager.request(command);
+        try {
+            return dispatchCommand(command);
+        } catch (Exception e) {
+            try {
+                blockStateManager.failed(command.getDeviceId(), requestId);
+            } catch (StorageException storageError) {
+                e.addSuppressed(storageError);
+            }
+            throw e;
+        }
+    }
+
+    private QueuedCommand dispatchCommand(Command command) throws Exception {
         long deviceId = command.getDeviceId();
         Device device = storage.getObject(Device.class, new Request(
                 new Columns.All(), new Condition.Equals("id", deviceId)));
+        String data = command.getString(Command.KEY_DATA);
+        if (data != null && data.contains("{uniqueId}")) {
+            command.set(Command.KEY_DATA, data.replace("{uniqueId}", device.getUniqueId()));
+        }
         Position position = storage.getObject(Position.class, new Request(
                 new Columns.All(),
                 new Condition.And(
@@ -93,7 +113,7 @@ public class CommandsManager implements BroadcastInterface {
             if (position != null) {
                 protocol.sendTextCommand(device.getPhone(), command);
             } else if (command.getType().equals(Command.TYPE_CUSTOM)) {
-                smsManager.sendMessage(device.getPhone(), command.getString(Command.KEY_DATA), true);
+                smsManager.sendMessage(device.getPhone(), command.getString(Command.KEY_DATA), true).get();
             } else {
                 throw new RuntimeException("Command " + command.getType() + " is not supported");
             }

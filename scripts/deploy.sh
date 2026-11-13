@@ -11,8 +11,8 @@
 #   ./scripts/deploy.sh --web-rollback [TS] restore web/ from a prior --web backup
 #
 # --prod only ever touches tracker-server.jar, lib/, schema/*.xml and templates/**/*.vm.
-# --web only ever touches web/. conf/traccar.xml, jre/ and the database's existing tables
-# are never modified by this script (the migration this repo ships only ADDS new tables).
+# --web only ever touches web/. conf/traccar.xml and jre/ are not replaced by this script. Database migrations
+# run on application startup and can alter existing tables and data.
 
 set -euo pipefail
 
@@ -407,7 +407,9 @@ Isso vai:
   4. Subir o serviço de novo e validar que respondeu
   5. Se falhar, reverter sozinho pro jar/schema/templates anteriores
 
-conf/traccar.xml, jre/, web/ e as tabelas já existentes do banco NÃO são tocados.
+conf/traccar.xml, jre/ e web/ não são substituídos.
+As migrations podem alterar tabelas e dados existentes. O rollback automático
+restaura apenas os arquivos; recuperação do banco exige o backup correspondente.
 
 EOF
     read -r -p "Digite CONFIRMAR para prosseguir: " confirm

@@ -16,10 +16,8 @@
  */
 package org.traccar.handler.events;
 
-import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.traccar.helper.model.PositionUtil;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
@@ -30,24 +28,25 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-public class ChargeEventHandler extends BaseEventHandler {
+import jakarta.inject.Inject;
+
+public class ChargeEventHandler extends BasePositionEventHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ChargeEventHandler.class);
     private static final String KEY_CHARGE_STATE = "chargeState";
 
-    private final CacheManager cacheManager;
     private final Storage storage;
 
     @Inject
     public ChargeEventHandler(CacheManager cacheManager, Storage storage) {
-        this.cacheManager = cacheManager;
+        super(cacheManager);
         this.storage = storage;
     }
 
     @Override
-    public void onPosition(Position position, Callback callback) {
+    protected void onPosition(Position position, Position lastPosition, Callback callback) {
         Device device = cacheManager.getObject(Device.class, position.getDeviceId());
-        if (device == null || !PositionUtil.isLatest(cacheManager, position)) {
+        if (device == null) {
             return;
         }
 

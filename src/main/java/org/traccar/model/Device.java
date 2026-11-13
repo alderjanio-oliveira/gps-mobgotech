@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2023 Anton Tananaev (anton@traccar.org)
+ * Copyright 2012 - 2026 Anton Tananaev (anton@traccar.org)
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,13 +16,17 @@
 package org.traccar.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.traccar.storage.QueryIgnore;
 import org.traccar.storage.StorageName;
 
 import java.util.Date;
+import java.util.regex.Pattern;
 
 @StorageName("tc_devices")
 public class Device extends GroupedModel implements Disableable, Schedulable {
+
+    private static final Pattern INVALID_UNIQUE_ID = Pattern.compile("[/\\\\]|\\A\\.{0,2}\\z");
 
     private long calendarId;
 
@@ -53,7 +57,11 @@ public class Device extends GroupedModel implements Disableable, Schedulable {
     }
 
     public void setUniqueId(String uniqueId) {
-        this.uniqueId = uniqueId.trim();
+        uniqueId = uniqueId.trim();
+        if (INVALID_UNIQUE_ID.matcher(uniqueId).find()) {
+            throw new IllegalArgumentException("Invalid device identifier");
+        }
+        this.uniqueId = uniqueId;
     }
 
     public static final String STATUS_UNKNOWN = "unknown";
@@ -91,6 +99,78 @@ public class Device extends GroupedModel implements Disableable, Schedulable {
 
     public void setPositionId(long positionId) {
         this.positionId = positionId;
+    }
+
+    private String blockState;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockState() {
+        return blockState != null ? blockState : "unknown";
+    }
+
+    public void setBlockState(String blockState) {
+        this.blockState = blockState;
+    }
+
+    private Date blockStateTime;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public Date getBlockStateTime() {
+        return blockStateTime;
+    }
+
+    public void setBlockStateTime(Date blockStateTime) {
+        this.blockStateTime = blockStateTime;
+    }
+
+    private String blockRequestedState;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockRequestedState() {
+        return blockRequestedState;
+    }
+
+    public void setBlockRequestedState(String blockRequestedState) {
+        this.blockRequestedState = blockRequestedState;
+    }
+
+    private Date blockRequestedTime;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public Date getBlockRequestedTime() {
+        return blockRequestedTime;
+    }
+
+    public void setBlockRequestedTime(Date blockRequestedTime) {
+        this.blockRequestedTime = blockRequestedTime;
+    }
+
+    private String blockRequestStatus;
+
+    @QueryIgnore
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getBlockRequestStatus() {
+        return blockRequestStatus;
+    }
+
+    public void setBlockRequestStatus(String blockRequestStatus) {
+        this.blockRequestStatus = blockRequestStatus;
+    }
+
+    private String blockRequestId;
+
+    @QueryIgnore
+    @JsonIgnore
+    public String getBlockRequestId() {
+        return blockRequestId;
+    }
+
+    public void setBlockRequestId(String blockRequestId) {
+        this.blockRequestId = blockRequestId;
     }
 
     private String phone;

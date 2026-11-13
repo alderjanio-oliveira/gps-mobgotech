@@ -16,18 +16,19 @@
  */
 package org.traccar.api.resource;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.UriInfo;
 import org.traccar.api.BaseResource;
 import org.traccar.helper.LogAction;
 import org.traccar.model.BaseModel;
+import org.traccar.model.Device;
+import org.traccar.model.LinkedDevice;
 import org.traccar.model.Permission;
 import org.traccar.model.UserRestrictions;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 
 import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -35,9 +36,14 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriInfo;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
@@ -45,7 +51,7 @@ import java.util.Set;
 @Path("permissions")
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
-public class PermissionsResource  extends BaseResource {
+public class PermissionsResource extends BaseResource {
 
     @Inject
     private CacheManager cacheManager;
@@ -64,25 +70,72 @@ public class PermissionsResource  extends BaseResource {
     }
 
     private void checkPermissionTypes(List<LinkedHashMap<String, Long>> entities) {
+        if (entities == null) {
+            throw new BadRequestException("Permissions are required");
+        }
         Set<String> keys = null;
         for (LinkedHashMap<String, Long> entity: entities) {
-            if (keys != null & !entity.keySet().equals(keys)) {
+            if (entity == null || entity.size() != 2 || entity.entrySet().stream().anyMatch(entry ->
+                    entry.getKey() == null || !entry.getKey().endsWith("Id")
+                            || entry.getValue() == null || entry.getValue() <= 0)) {
+                throw new BadRequestException("Invalid permission");
+            }
+            if (keys != null && !entity.keySet().equals(keys)) {
                 throw new WebApplicationException(Response.status(Response.Status.BAD_REQUEST).build());
             }
             keys = entity.keySet();
         }
     }
 
+    private void checkDeviceHierarchy(long deviceId, long linkedDeviceId, List<Permission> links) {
+        var pending = new ArrayDeque<Long>();
+        var visited = new HashSet<Long>();
+        pending.add(linkedDeviceId);
+        while (!pending.isEmpty()) {
+            long currentId = pending.removeLast();
+            if (currentId == deviceId) {
+                throw new IllegalArgumentException("Device link cycle detected");
+            }
+            if (visited.add(currentId)) {
+                links.stream().filter(link -> link.getOwnerId() == currentId)
+                        .map(Permission::getPropertyId).forEach(pending::add);
+            }
+        }
+    }
+
+    private List<Permission> validatePermissions(List<LinkedHashMap<String, Long>> entities, boolean addition)
+            throws StorageException {
+        checkPermissionTypes(entities);
+        List<Permission> permissions = new ArrayList<>();
+        for (var entity : entities) {
+            Permission permission = new Permission(entity);
+            if (permission.getOwnerClass() == null || permission.getPropertyClass() == null) {
+                throw new BadRequestException("Unknown permission type");
+            }
+            checkPermission(permission);
+            permissions.add(permission);
+        }
+        if (addition && permissions.stream().anyMatch(permission -> permission.getOwnerClass() == Device.class
+                && permission.getPropertyClass() == LinkedDevice.class)) {
+            var links = new ArrayList<>(storage.getPermissions(Device.class, LinkedDevice.class));
+            links.addAll(permissions);
+            for (var permission : permissions) {
+                checkDeviceHierarchy(permission.getOwnerId(), permission.getPropertyId(), links);
+            }
+        }
+        return permissions;
+    }
+
     @GET
     public List<Permission> get(@Context UriInfo uriInfo) throws StorageException {
         permissionsService.checkAdmin(getUserId());
-        var entries = uriInfo.getQueryParameters().entrySet().stream()
-                .filter(entry -> entry.getKey().endsWith("Id"))
-                .toList();
-        Class<? extends BaseModel> ownerClass = Permission.getKeyClass(entries.get(0).getKey());
-        long ownerId = Long.parseLong(entries.get(0).getValue().get(0));
-        Class<? extends BaseModel> propertyClass = Permission.getKeyClass(entries.get(1).getKey());
-        long propertyId = Long.parseLong(entries.get(1).getValue().get(0));
+        String[] parameters = uriInfo.getRequestUri().getQuery().split("&");
+        String[] owner = parameters[0].split("=");
+        String[] property = parameters[1].split("=");
+        Class<? extends BaseModel> ownerClass = Permission.getKeyClass(owner[0]);
+        long ownerId = Long.parseLong(owner[1]);
+        Class<? extends BaseModel> propertyClass = Permission.getKeyClass(property[0]);
+        long propertyId = Long.parseLong(property[1]);
         return storage.getPermissions(ownerClass, ownerId, propertyClass, propertyId);
     }
 
@@ -90,10 +143,7 @@ public class PermissionsResource  extends BaseResource {
     @POST
     public Response add(List<LinkedHashMap<String, Long>> entities) throws Exception {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
-        checkPermissionTypes(entities);
-        for (LinkedHashMap<String, Long> entity: entities) {
-            Permission permission = new Permission(entity);
-            checkPermission(permission);
+        for (Permission permission : validatePermissions(entities, true)) {
             storage.addPermission(permission);
             cacheManager.invalidatePermission(
                     true,
@@ -116,10 +166,7 @@ public class PermissionsResource  extends BaseResource {
     @Path("bulk")
     public Response remove(List<LinkedHashMap<String, Long>> entities) throws Exception {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
-        checkPermissionTypes(entities);
-        for (LinkedHashMap<String, Long> entity: entities) {
-            Permission permission = new Permission(entity);
-            checkPermission(permission);
+        for (Permission permission : validatePermissions(entities, false)) {
             storage.removePermission(permission);
             cacheManager.invalidatePermission(
                     true,

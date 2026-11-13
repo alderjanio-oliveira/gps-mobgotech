@@ -19,12 +19,12 @@ import com.google.inject.Injector;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import jakarta.inject.Inject;
-import jakarta.inject.Singleton;
 import org.traccar.config.Config;
 import org.traccar.database.BufferingManager;
 import org.traccar.database.NotificationManager;
 import org.traccar.handler.BasePositionHandler;
+import org.traccar.handler.BlockStateHandler;
+import org.traccar.handler.BusinessHandler;
 import org.traccar.handler.ComputedAttributesHandler;
 import org.traccar.handler.CopyAttributesHandler;
 import org.traccar.handler.DatabaseHandler;
@@ -63,6 +63,8 @@ import org.traccar.helper.PositionLogger;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
 
+import jakarta.inject.Inject;
+import jakarta.inject.Singleton;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -101,6 +103,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
         bufferingManager = new BufferingManager(config, this);
 
         positionHandlers = Stream.of(
+                BlockStateHandler.class,
                 ComputedAttributesHandler.Early.class,
                 OutdatedHandler.class,
                 TimeHandler.class,
@@ -113,6 +116,7 @@ public class ProcessingHandler extends ChannelInboundHandlerAdapter implements B
                 GeocoderHandler.class,
                 SpeedLimitHandler.class,
                 MotionHandler.class,
+                BusinessHandler.class,
                 ComputedAttributesHandler.Late.class,
                 DriverHandler.class,
                 CopyAttributesHandler.class,

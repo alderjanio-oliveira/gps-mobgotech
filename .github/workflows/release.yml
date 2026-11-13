@@ -13,13 +13,14 @@ jobs:
     name: Build server
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
+          check-latest: true
           cache: gradle
       - run: ./gradlew assemble
       - name: Stage server payload
@@ -41,11 +42,11 @@ jobs:
     name: Build web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: traccar/traccar-web
           ref: ${{ github.ref_name }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -67,11 +68,12 @@ jobs:
     needs: [build-server, build-web]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
+          check-latest: true
       - run: sudo apt-get install -y makeself
       - uses: actions/download-artifact@v8
         with:
@@ -87,7 +89,7 @@ jobs:
         run: |
           mkdir -p out/data out/logs
           cp setup.sh traccar.service out/
-          jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.unsupported --output out/jre
+          jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.net,jdk.unsupported --output out/jre
           makeself --needroot --quiet --notemp out traccar.run "traccar" ./setup.sh
           zip -q -j "traccar-linux-64-${{ github.event.inputs.version }}.zip" traccar.run README.txt
       - uses: actions/upload-artifact@v7
@@ -102,11 +104,12 @@ jobs:
     needs: [build-server, build-web]
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
+          check-latest: true
       - run: sudo apt-get install -y makeself
       - uses: actions/download-artifact@v8
         with:
@@ -122,7 +125,7 @@ jobs:
         run: |
           mkdir -p out/data out/logs
           cp setup.sh traccar.service out/
-          jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.unsupported --output out/jre
+          jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.net,jdk.unsupported --output out/jre
           makeself --needroot --quiet --notemp out traccar.run "traccar" ./setup.sh
           zip -q -j "traccar-linux-arm-${{ github.event.inputs.version }}.zip" traccar.run README.txt
       - uses: actions/upload-artifact@v7
@@ -137,11 +140,12 @@ jobs:
     needs: [build-server, build-web]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 25
+          check-latest: true
       - uses: actions/download-artifact@v8
         with:
           name: staged-server
@@ -153,7 +157,7 @@ jobs:
       - name: jlink runtime image
         shell: bash
         working-directory: setup
-        run: jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.unsupported --output out/jre
+        run: jlink --add-modules java.se,jdk.charsets,jdk.crypto.ec,jdk.net,jdk.unsupported --output out/jre
       - name: Build installer
         shell: cmd
         working-directory: setup
@@ -178,7 +182,7 @@ jobs:
     needs: [build-server, build-web]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           name: staged-server
@@ -285,7 +289,7 @@ jobs:
         include:
           - platforms: linux/amd64,linux/arm64
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/download-artifact@v8

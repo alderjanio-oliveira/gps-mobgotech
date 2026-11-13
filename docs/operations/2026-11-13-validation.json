@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-13",
+  "backendBranch": "mobgo/evolucao-6.17",
+  "backendBase": "mobgo/master",
+  "upstreamVersion": "6.17.0",
+  "webBranch": "mobgo/evolucao-6.17",
+  "webCommit": "e7b6caccff98405f3dbba00373f91404339de46c",
+  "javaTests": 659,
+  "failures": 0,
+  "checkstyleMain": "passed",
+  "checkstyleTest": "passed",
+  "webLint": "passed",
+  "webBuild": "passed",
+  "liveUpdateJsTest": "passed",
+  "productionChanged": false,
+  "pushPerformed": false,
+  "jarSha256": "2b0acebbb0dacb440e5d752411fa8abc2e373ab78707aa803ccedb0d3cded067",
+  "remainingWork": "Remaining cycles and delivery atomicity are tracked in docs/plans/2026-11-12-evolucao-traccar.md"
+}
