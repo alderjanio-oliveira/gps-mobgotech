@@ -15,7 +15,6 @@
  */
 package org.traccar.handler.events;
 
-import jakarta.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.traccar.model.DistanceReminder;
@@ -28,31 +27,31 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
-public class DistanceReminderEventHandler extends BaseEventHandler {
+import jakarta.inject.Inject;
+
+public class DistanceReminderEventHandler extends BasePositionEventHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(DistanceReminderEventHandler.class);
 
-    private final CacheManager cacheManager;
     private final Storage storage;
 
     @Inject
     public DistanceReminderEventHandler(CacheManager cacheManager, Storage storage) {
-        this.cacheManager = cacheManager;
+        super(cacheManager);
         this.storage = storage;
     }
 
     @Override
-    public void onPosition(Position position, Callback callback) {
+    protected void onPosition(Position position, Position lastPosition, Callback callback) {
         if (!position.hasAttribute(Position.KEY_TOTAL_DISTANCE)) {
             return;
         }
 
-        Position lastPosition = cacheManager.getPosition(position.getDeviceId());
-        if (lastPosition == null || position.getFixTime().compareTo(lastPosition.getFixTime()) < 0) {
+        double totalDistance = position.getDouble(Position.KEY_TOTAL_DISTANCE);
+
+        if (!Double.isFinite(totalDistance) || totalDistance < 0 || position.getBoolean(Position.KEY_ARCHIVE)) {
             return;
         }
-
-        double totalDistance = position.getDouble(Position.KEY_TOTAL_DISTANCE);
 
         for (DistanceReminder reminder
                 : cacheManager.getDeviceObjects(position.getDeviceId(), DistanceReminder.class)) {
@@ -60,24 +59,25 @@ public class DistanceReminderEventHandler extends BaseEventHandler {
                 continue;
             }
             try {
-                if (reminder.getStartValue() <= 0) {
-                    reminder.setStartValue(totalDistance);
-                    storage.updateObject(reminder, new Request(
-                            new Columns.Include("startValue"),
-                            new Condition.Equals("id", reminder.getId())));
-                    continue;
-                }
-
                 double traveled = totalDistance - reminder.getStartValue();
-                if (reminder.getThresholdDistance() > 0 && traveled >= reminder.getThresholdDistance()) {
-                    reminder.setStatus(DistanceReminder.STATUS_NOTIFIED);
-                    reminder.setNotifiedAt(position.getDeviceTime());
-                    storage.updateObject(reminder, new Request(
+                if (Double.isFinite(traveled) && reminder.getStartValue() >= 0
+                        && Double.isFinite(reminder.getThresholdDistance())
+                        && reminder.getThresholdDistance() > 0 && traveled >= reminder.getThresholdDistance()) {
+                    // Persist a separate object first. A failed write must not consume the cached reminder.
+                    DistanceReminder update = new DistanceReminder();
+                    update.setId(reminder.getId());
+                    update.setStatus(DistanceReminder.STATUS_NOTIFIED);
+                    update.setNotifiedAt(position.getServerTime());
+                    storage.updateObject(update, new Request(
                             new Columns.Include("status", "notifiedAt"),
                             new Condition.Equals("id", reminder.getId())));
+                    reminder.setStatus(update.getStatus());
+                    reminder.setNotifiedAt(update.getNotifiedAt());
 
                     Event event = new Event(Event.TYPE_DISTANCE_REMINDER, position);
                     event.setDistanceReminderId(reminder.getId());
+                    event.set("traveledDistance", traveled);
+                    event.set("thresholdDistance", reminder.getThresholdDistance());
                     callback.eventDetected(event);
                 }
             } catch (StorageException e) {

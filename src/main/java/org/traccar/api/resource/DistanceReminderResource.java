@@ -15,16 +15,6 @@
  */
 package org.traccar.api.resource;
 
-import jakarta.inject.Inject;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.ws.rs.Consumes;
-import jakarta.ws.rs.POST;
-import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
-import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.core.Context;
-import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import org.traccar.api.ExtendedObjectResource;
 import org.traccar.helper.LogAction;
 import org.traccar.model.Device;
@@ -38,6 +28,18 @@ import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
+import jakarta.inject.Inject;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import java.util.Date;
 import java.util.List;
 
@@ -59,10 +61,53 @@ public class DistanceReminderResource extends ExtendedObjectResource<DistanceRem
         super(DistanceReminder.class, "name", List.of("name"));
     }
 
+    private void validate(DistanceReminder reminder) {
+        if (reminder == null || reminder.getName() == null || reminder.getName().isBlank()
+                || !Double.isFinite(reminder.getThresholdDistance()) || reminder.getThresholdDistance() <= 0
+                || !Double.isFinite(reminder.getStartValue()) || reminder.getStartValue() < 0) {
+            throw new BadRequestException("Name, positive threshold and non-negative start value are required");
+        }
+    }
+
+    @Override
+    @POST
+    public Response add(DistanceReminder reminder) throws Exception {
+        validate(reminder);
+        reminder.setStatus(DistanceReminder.STATUS_PENDING);
+        reminder.setNotifiedAt(null);
+        reminder.setConfirmedAt(null);
+        reminder.setCancelledAt(null);
+        reminder.setTraveledDistance(0);
+        return super.add(reminder);
+    }
+
+    @Override
+    @Path("{id}")
+    @PUT
+    public Response update(DistanceReminder reminder) throws Exception {
+        validate(reminder);
+        permissionsService.checkPermission(DistanceReminder.class, getUserId(), reminder.getId());
+        DistanceReminder before = storage.getObject(DistanceReminder.class, new Request(
+                new Columns.All(), new Condition.Equals("id", reminder.getId())));
+        if (before == null) {
+            return Response.status(Response.Status.NOT_FOUND).build();
+        }
+        if (!DistanceReminder.STATUS_PENDING.equals(before.getStatus())) {
+            return Response.status(Response.Status.CONFLICT).build();
+        }
+        reminder.setStatus(before.getStatus());
+        reminder.setNotifiedAt(before.getNotifiedAt());
+        reminder.setConfirmedAt(before.getConfirmedAt());
+        reminder.setCancelledAt(before.getCancelledAt());
+        reminder.setTraveledDistance(before.getTraveledDistance());
+        return super.update(reminder);
+    }
+
     @Path("{id}/confirm")
     @POST
     public Response confirm(@PathParam("id") long id) throws Exception {
         permissionsService.checkPermission(DistanceReminder.class, getUserId(), id);
+        permissionsService.checkEdit(getUserId(), DistanceReminder.class, false, false);
 
         DistanceReminder reminder = storage.getObject(DistanceReminder.class, new Request(
                 new Columns.All(), new Condition.Equals("id", id)));
@@ -70,6 +115,12 @@ public class DistanceReminderResource extends ExtendedObjectResource<DistanceRem
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
+        if (DistanceReminder.STATUS_DONE.equals(reminder.getStatus())) {
+            return Response.ok(reminder).build();
+        }
+        if (DistanceReminder.STATUS_CANCELLED.equals(reminder.getStatus())) {
+            return Response.status(Response.Status.CONFLICT).build();
+        }
         double totalDistance = findCurrentTotalDistance(id, reminder.getStartValue());
 
         reminder.setStatus(DistanceReminder.STATUS_DONE);
@@ -89,6 +140,7 @@ public class DistanceReminderResource extends ExtendedObjectResource<DistanceRem
     @POST
     public Response cancel(@PathParam("id") long id) throws Exception {
         permissionsService.checkPermission(DistanceReminder.class, getUserId(), id);
+        permissionsService.checkEdit(getUserId(), DistanceReminder.class, false, false);
 
         DistanceReminder reminder = storage.getObject(DistanceReminder.class, new Request(
                 new Columns.All(), new Condition.Equals("id", id)));
@@ -96,6 +148,12 @@ public class DistanceReminderResource extends ExtendedObjectResource<DistanceRem
             return Response.status(Response.Status.NOT_FOUND).build();
         }
 
+        if (DistanceReminder.STATUS_CANCELLED.equals(reminder.getStatus())) {
+            return Response.ok(reminder).build();
+        }
+        if (DistanceReminder.STATUS_DONE.equals(reminder.getStatus())) {
+            return Response.status(Response.Status.CONFLICT).build();
+        }
         reminder.setStatus(DistanceReminder.STATUS_CANCELLED);
         reminder.setCancelledAt(new Date());
 

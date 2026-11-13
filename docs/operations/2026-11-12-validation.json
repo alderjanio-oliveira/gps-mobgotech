@@ -1,0 +1,19 @@
+{
+  "date": "2026-11-12",
+  "backendVersion": "6.17.0",
+  "javaTests": 652,
+  "failures": 0,
+  "checkstyleMain": "passed",
+  "checkstyleTest": "passed",
+  "webLint": "passed",
+  "webBuild": "passed",
+  "liveUpdateJsTest": "passed",
+  "productionChanged": false,
+  "remoteDeployment": "user-managed",
+  "limitations": [
+    "MySQL production clone and drift not validated",
+    "SMTP and physical tracker not validated",
+    "Remaining management and operations cycles listed in execution plan"
+  ],
+  "jarSha256": "77106cc6bba8308f69c0628f58486f752c8cf771cd6596b418cc9ada9f791382"
+}

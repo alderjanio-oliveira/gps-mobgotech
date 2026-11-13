@@ -16,10 +16,11 @@
  */
 package org.traccar.handler;
 
-import jakarta.inject.Inject;
 import org.traccar.database.BlockStateManager;
 import org.traccar.model.Position;
 import org.traccar.storage.StorageException;
+
+import jakarta.inject.Inject;
 
 public class BlockStateHandler extends BasePositionHandler {
 
