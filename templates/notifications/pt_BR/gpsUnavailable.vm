@@ -1,0 +1,8 @@
+#set($subject = "$esc.html($device.name): GPS indisponível")
+#set($digest = "$device.name: GPS indisponível")
+<!DOCTYPE html>
+<html><body>
+$esc.html($device.name): GPS indisponível<br>
+$dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)<br>
+<a href="$webUrl/event/$event.id">Ver evento</a>
+</body></html>

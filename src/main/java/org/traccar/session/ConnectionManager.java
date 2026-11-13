@@ -28,7 +28,9 @@ import org.traccar.database.NotificationManager;
 import org.traccar.model.BaseModel;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
+import org.traccar.model.Group;
 import org.traccar.model.LogRecord;
+import org.traccar.model.ObjectOperation;
 import org.traccar.model.Position;
 import org.traccar.model.User;
 import org.traccar.session.cache.CacheManager;
@@ -341,19 +343,47 @@ public class ConnectionManager implements BroadcastInterface {
         }
     }
 
+    private void refreshUserPermissions(long userId) throws StorageException {
+        if (!listeners.containsKey(userId)) {
+            return;
+        }
+        var devices = storage.getObjects(Device.class, new Request(new Columns.Include("id"),
+                new Condition.Permission(User.class, userId, Device.class)));
+        Set<Long> allowed = devices.stream().map(BaseModel::getId).collect(Collectors.toSet());
+        Set<Long> previous = userDevices.getOrDefault(userId, Set.of());
+        for (long deviceId : previous) {
+            if (!allowed.contains(deviceId)) {
+                deviceUsers.computeIfPresent(deviceId, (key, users) -> {
+                    users.remove(userId);
+                    return users.isEmpty() ? null : users;
+                });
+            }
+        }
+        for (long deviceId : allowed) {
+            deviceUsers.computeIfAbsent(deviceId, key -> new HashSet<>()).add(userId);
+        }
+        userDevices.put(userId, allowed);
+    }
+
     @Override
     public synchronized <T1 extends BaseModel, T2 extends BaseModel> void invalidatePermission(
-            boolean local, Class<T1> clazz1, long id1, Class<T2> clazz2, long id2, boolean link) {
-        if (clazz1.equals(User.class) && clazz2.equals(Device.class) && listeners.containsKey(id1)) {
-            if (link) {
-                userDevices.get(id1).add(id2);
-                deviceUsers.computeIfAbsent(id2, id -> new HashSet<>()).add(id1);
-            } else {
-                userDevices.get(id1).remove(id2);
-                deviceUsers.computeIfPresent(id2, (x, userIds) -> {
-                    userIds.remove(id1);
-                    return userIds.isEmpty() ? null : userIds;
-                });
+            boolean local, Class<T1> clazz1, long id1, Class<T2> clazz2, long id2, boolean link)
+            throws StorageException {
+        if (clazz1.equals(User.class) && (clazz2.equals(Device.class) || clazz2.equals(Group.class))) {
+            refreshUserPermissions(id1);
+        } else if (clazz1.equals(Group.class) || clazz2.equals(Group.class)) {
+            for (long userId : Set.copyOf(listeners.keySet())) {
+                refreshUserPermissions(userId);
+            }
+        }
+    }
+
+    @Override
+    public synchronized <T extends BaseModel> void invalidateObject(
+            boolean local, Class<T> clazz, long id, ObjectOperation operation) throws StorageException {
+        if (clazz.equals(Device.class) || clazz.equals(Group.class)) {
+            for (long userId : Set.copyOf(listeners.keySet())) {
+                refreshUserPermissions(userId);
             }
         }
     }
@@ -380,7 +410,20 @@ public class ConnectionManager implements BroadcastInterface {
         }
     }
 
+    public synchronized Set<Long> listenerUserIds() {
+        return Set.copyOf(listeners.keySet());
+    }
+
+    public synchronized void revokeUserAccess(long userId) {
+        for (var listener : Set.copyOf(listeners.getOrDefault(userId, Set.of()))) {
+            listener.onAccessRevoked();
+        }
+    }
+
     public interface UpdateListener {
+        default void onAccessRevoked() {
+        }
+
         void onKeepalive();
 
         void onUpdateDevice(Device device);

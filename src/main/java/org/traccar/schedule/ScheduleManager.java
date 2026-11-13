@@ -44,12 +44,15 @@ public class ScheduleManager implements LifecycleObject {
         executor = Executors.newScheduledThreadPool(4);
         Stream.of(
                 TaskHealthCheck.class,
+                TaskNotificationOutbox.class,
                 TaskClearStatus.class,
                 TaskExpirations.class,
                 TaskDeleteTemporary.class,
                 TaskReports.class,
                 TaskDeviceInactivityCheck.class,
+                TaskDeviceHealthCheck.class,
                 TaskSessionTimeout.class,
+                TaskUserAccessCheck.class,
                 TaskWebSocketKeepalive.class)
                 .forEachOrdered(taskClass -> {
                     var task = injector.getInstance(taskClass);

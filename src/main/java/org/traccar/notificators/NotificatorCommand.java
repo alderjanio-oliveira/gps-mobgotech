@@ -55,7 +55,8 @@ public class NotificatorCommand extends Notificator {
             Command command = storage.getObject(Command.class, new Request(
                     new Columns.All(), new Condition.Equals("id", notification.getCommandId())));
             command.setDeviceId(event.getDeviceId());
-            commandsManager.sendCommand(command);
+            commandsManager.sendCommand(command, user.getId(),
+                    "notification-" + notification.getId() + "-" + event.getId());
             return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
             return CompletableFuture.failedFuture(e);

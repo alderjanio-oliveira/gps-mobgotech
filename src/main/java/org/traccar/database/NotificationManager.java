@@ -23,28 +23,33 @@ import org.traccar.config.Keys;
 import org.traccar.forward.EventData;
 import org.traccar.forward.EventForwarder;
 import org.traccar.geocoder.Geocoder;
-import org.traccar.helper.DateUtil;
 import org.traccar.model.Calendar;
 import org.traccar.model.Device;
 import org.traccar.model.Event;
 import org.traccar.model.Geofence;
 import org.traccar.model.Maintenance;
+import org.traccar.model.Notification;
 import org.traccar.model.Position;
+import org.traccar.notification.NotificationOutbox;
 import org.traccar.notification.NotificatorManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 import org.traccar.storage.StorageException;
 import org.traccar.storage.query.Columns;
+import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Request;
 
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 @Singleton
 public class NotificationManager {
@@ -52,6 +57,7 @@ public class NotificationManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(NotificationManager.class);
 
     private final Storage storage;
+    private final NotificationOutbox outbox;
     private final CacheManager cacheManager;
     private final EventForwarder eventForwarder;
     private final NotificatorManager notificatorManager;
@@ -64,8 +70,9 @@ public class NotificationManager {
     @Inject
     public NotificationManager(
             Config config, Storage storage, CacheManager cacheManager, @Nullable EventForwarder eventForwarder,
-            NotificatorManager notificatorManager, @Nullable Geocoder geocoder) {
+            NotificatorManager notificatorManager, @Nullable Geocoder geocoder, NotificationOutbox outbox) {
         this.storage = storage;
+        this.outbox = outbox;
         this.cacheManager = cacheManager;
         this.eventForwarder = eventForwarder;
         this.notificatorManager = notificatorManager;
@@ -80,20 +87,14 @@ public class NotificationManager {
         }
     }
 
-    private void updateEvent(Event event, Position position) {
-        try {
-            event.setId(storage.addObject(event, new Request(new Columns.Exclude("id"))));
-        } catch (StorageException error) {
-            LOGGER.warn("Event save error", error);
+    private void updateEvent(Event event, Position position) throws StorageException {
+        if (outbox.save(event, position)) {
+            LOGGER.info("Event queued: event={}, device={}, type={}",
+                    event.getId(), event.getDeviceId(), event.getType());
         }
+    }
 
-        forwardEvent(event, position);
-
-        if (System.currentTimeMillis() - event.getEventTime().getTime() > timeThreshold) {
-            LOGGER.info("Skipping notifications for old event");
-            return;
-        }
-
+    private List<Notification> matchingNotifications(Event event) {
         var notifications = cacheManager.getDeviceNotifications(event.getDeviceId()).stream()
                 .filter(notification -> notification.getType().equals(event.getType()))
                 .filter(notification -> {
@@ -122,50 +123,108 @@ public class NotificationManager {
                 })
                 .toList();
 
-        Device device = cacheManager.getObject(Device.class, event.getDeviceId());
-        LOGGER.info(
-                "Event id: {}, time: {}, type: {}, notifications: {}",
-                device.getUniqueId(),
-                DateUtil.formatDate(event.getEventTime(), false),
-                event.getType(),
-                notifications.size());
+        return notifications;
+    }
 
-        if (!notifications.isEmpty()) {
+    private void expandEvent(Event event, Position position, String token) throws StorageException {
+        if (System.currentTimeMillis() - event.getEventTime().getTime() > timeThreshold) {
+            outbox.expand(event, token, List.of(), "expired");
+            return;
+        }
+        var recipients = new ArrayList<NotificationOutbox.Recipient>();
+        for (var notification : matchingNotifications(event)) {
+            for (var user : cacheManager.getNotificationUsers(notification.getId(), event.getDeviceId())) {
+                if (!blockedUsers.contains(user.getId()) && !user.getDisabled()) {
+                    for (String channel : notification.getNotificatorsTypes()) {
+                        if (!channel.isBlank()) {
+                            recipients.add(new NotificationOutbox.Recipient(
+                                    notification.getId(), user.getId(), channel));
+                        }
+                    }
+                }
+            }
+        }
+        outbox.expand(event, token, recipients, recipients.isEmpty() ? "noRecipients" : "expanded");
+        forwardEvent(event, position);
+    }
+
+    public void drainOutbox() {
+        try {
+            for (long id : outbox.pendingEvents()) {
+                String token = outbox.claimEvent(id);
+                if (token == null) {
+                    continue;
+                }
+                Event event = storage.getObject(Event.class, new Request(new Columns.All(),
+                        new Condition.Equals("id", id)));
+                if (event == null) {
+                    continue;
+                }
+                Object reference = new Object();
+                try {
+                    cacheManager.addDevice(event.getDeviceId(), reference);
+                    expandEvent(event, outbox.position(id), token);
+                } catch (Exception error) {
+                    outbox.failEvent(id, token, error.getClass().getSimpleName());
+                    LOGGER.warn("Event fan-out failed: event={}, error={}", id, error.getClass().getSimpleName());
+                } finally {
+                    cacheManager.removeDevice(event.getDeviceId(), reference);
+                }
+            }
+            for (var candidate : outbox.dueDeliveries()) {
+                var delivery = outbox.claim(candidate);
+                if (delivery != null) {
+                    deliver(delivery);
+                }
+            }
+        } catch (StorageException error) {
+            LOGGER.warn("Notification outbox unavailable: {}", error.getClass().getSimpleName());
+        }
+    }
+
+    private void finishDelivery(NotificationOutbox.Delivery delivery, String state, String errorCode) {
+        try {
+            outbox.finish(delivery, state, errorCode);
+        } catch (StorageException error) {
+            LOGGER.warn("Notification result persistence failed: delivery={}", delivery.id());
+        }
+    }
+
+    private void deliver(NotificationOutbox.Delivery delivery) {
+        Object reference = new Object();
+        try {
+            cacheManager.addDevice(delivery.deviceId(), reference);
+            var user = cacheManager.getNotificationUsers(delivery.notificationId(), delivery.deviceId()).stream()
+                    .filter(value -> value.getId() == delivery.userId()).findFirst().orElse(null);
+            var notification = cacheManager.getDeviceNotifications(delivery.deviceId()).stream()
+                    .filter(value -> value.getId() == delivery.notificationId()).findFirst().orElse(null);
+            if (user == null || user.getDisabled() || blockedUsers.contains(delivery.userId()) || notification == null
+                    || !notification.getNotificatorsTypes().contains(delivery.channel())) {
+                finishDelivery(delivery, "cancelled", "recipientOrChannelRevoked");
+                return;
+            }
+            user.checkDisabled();
+            Event event = storage.getObject(Event.class, new Request(new Columns.All(),
+                    new Condition.Equals("id", delivery.eventId())));
+            if (event == null || !notification.getType().equals(event.getType())) {
+                finishDelivery(delivery, "cancelled", "eventOrRuleRemoved");
+                return;
+            }
+            Position position = outbox.position(delivery.eventId());
             if (position != null && position.getAddress() == null && geocodeOnRequest && geocoder != null) {
                 position.setAddress(geocoder.getAddress(position.getLatitude(), position.getLongitude(), null));
             }
-
-            notifications.forEach(notification -> {
-                cacheManager.getNotificationUsers(notification.getId(), event.getDeviceId()).forEach(user -> {
-                    if (blockedUsers.contains(user.getId()) || user.getDisabled()) {
-                        LOGGER.info("User {} notification blocked", user.getId());
-                        return;
-                    }
-                    for (String notificator : notification.getNotificatorsTypes()) {
-                        try {
-                            notificatorManager.getNotificator(notificator)
-                                    .sendAsync(notification, user, event, position)
-                                    .whenComplete((result, error) -> {
-                                        if (error == null) {
-                                            LOGGER.info("Notification adapter completed: event={}, notification={}, "
-                                                            + "user={}, channel={}",
-                                                    event.getId(), notification.getId(), user.getId(), notificator);
-                                        } else {
-                                            LOGGER.warn("Notification failed: event={}, notification={}, user={}, "
-                                                            + "channel={}",
-                                                    event.getId(), notification.getId(), user.getId(),
-                                                    notificator, error);
-                                        }
-                                    });
-                        } catch (RuntimeException error) {
-                            // A disabled or unknown channel must not suppress the remaining channels or users.
-                            LOGGER.warn("Notification channel unavailable: event={}, notification={}, "
-                                            + "user={}, channel={}",
-                                    event.getId(), notification.getId(), user.getId(), notificator, error);
-                        }
-                    }
-                });
-            });
+            notificatorManager.getNotificator(delivery.channel()).sendAsync(notification, user, event, position)
+                    .orTimeout(30, TimeUnit.SECONDS).whenComplete((ignored, error) -> {
+                        finishDelivery(delivery, error == null ? "accepted" : "failed",
+                                error == null ? null : error.getClass().getSimpleName());
+                    });
+        } catch (SecurityException error) {
+            finishDelivery(delivery, "cancelled", "accountDisabledOrExpired");
+        } catch (Exception error) {
+            finishDelivery(delivery, "failed", error.getClass().getSimpleName());
+        } finally {
+            cacheManager.removeDevice(delivery.deviceId(), reference);
         }
     }
 

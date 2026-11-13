@@ -20,6 +20,7 @@ import org.traccar.BaseProtocol;
 import org.traccar.ServerManager;
 import org.traccar.broadcast.BroadcastInterface;
 import org.traccar.broadcast.BroadcastService;
+import org.traccar.command.CommandLedger;
 import org.traccar.command.CommandSender;
 import org.traccar.command.CommandSenderManager;
 import org.traccar.model.Command;
@@ -50,6 +51,7 @@ import java.util.Map;
 public class CommandsManager implements BroadcastInterface {
 
     private final Storage storage;
+    private final CommandLedger ledger;
     private final BlockStateManager blockStateManager;
     private final ServerManager serverManager;
     private final SmsManager smsManager;
@@ -64,8 +66,9 @@ public class CommandsManager implements BroadcastInterface {
             Storage storage, ServerManager serverManager, @Nullable SmsManager smsManager,
             ConnectionManager connectionManager, BroadcastService broadcastService,
             NotificationManager notificationManager, CacheManager cacheManager,
-            CommandSenderManager commandSenderManager, BlockStateManager blockStateManager) {
+            CommandSenderManager commandSenderManager, BlockStateManager blockStateManager, CommandLedger ledger) {
         this.storage = storage;
+        this.ledger = ledger;
         this.blockStateManager = blockStateManager;
         this.serverManager = serverManager;
         this.smsManager = smsManager;
@@ -78,16 +81,40 @@ public class CommandsManager implements BroadcastInterface {
     }
 
     public QueuedCommand sendCommand(Command command) throws Exception {
-        String requestId = blockStateManager.request(command);
-        try {
-            return dispatchCommand(command);
-        } catch (Exception e) {
-            try {
-                blockStateManager.failed(command.getDeviceId(), requestId);
-            } catch (StorageException storageError) {
-                e.addSuppressed(storageError);
+        return sendCommand(command, 0, null);
+    }
+
+    public QueuedCommand sendCommand(Command command, long userId, String key) throws Exception {
+        var receipt = ledger.begin(command, userId, key);
+        if (!receipt.newRequest()) {
+            if ("requested".equals(receipt.state()) || "uncertain".equals(receipt.state())) {
+                throw new CommandLedger.Conflict("Previous command outcome is uncertain; check command history");
             }
-            throw e;
+            if (receipt.queuedCommandId() != null) {
+                QueuedCommand replay = QueuedCommand.fromCommand(command);
+                replay.setId(receipt.queuedCommandId());
+                return replay;
+            }
+            return null;
+        }
+        String requestId = null;
+        boolean dispatched = false;
+        try {
+            requestId = blockStateManager.request(command);
+            QueuedCommand queued = dispatchCommand(command);
+            dispatched = true;
+            ledger.dispatched(receipt.id(), queued);
+            return queued;
+        } catch (Exception error) {
+            try {
+                if (!dispatched) {
+                    blockStateManager.failed(command.getDeviceId(), requestId);
+                }
+                ledger.failed(receipt.id(), error);
+            } catch (StorageException persistenceError) {
+                error.addSuppressed(persistenceError);
+            }
+            throw error;
         }
     }
 
@@ -150,6 +177,7 @@ public class CommandsManager implements BroadcastInterface {
                     new Order("id", false, count)));
             Map<Event, Position> events = new HashMap<>();
             for (var command : commands) {
+                ledger.released(command.getId());
                 storage.removeObject(QueuedCommand.class, new Request(
                         new Condition.Equals("id", command.getId())));
 

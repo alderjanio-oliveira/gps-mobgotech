@@ -1,11 +1,8 @@
 # Homologação do Traccar 6.17 com Rota-Tech
 
-O repositório `/home/alderjanio/traccar` usa a branch `mobgo/evolucao-6.17`, baseada em
-`mobgo/master`, com a integração da tag oficial
+O repositório definitivo `/home/alderjanio/personal-projects/traccar` usa a branch `mobgo/evolucao-6.17`, criada a partir da base de produção `44565ef81`, com a integração da tag oficial
 `v6.17.0` (45ae7321fe56688ca26f2f5b62e6dbb7a4737562) e web correspondente
-(09c926c245bb3e30d0f70f9541da4637e15496ee). As customizações funcionais foram
-reconciliadas com o fork local `/home/alderjanio/personal-projects/traccar`,
-commit 44565ef81. A web também usa `mobgo/evolucao-6.17`, baseada no seu fork
+(09c926c245bb3e30d0f70f9541da4637e15496ee). As customizações funcionais e os scripts de deploy dessa base foram preservados. A web também usa `mobgo/evolucao-6.17`, baseada no seu fork
 `https://github.com/alderjanio-oliveira/traccar-web-.git`. As personalizações já
 existentes nesse fork foram preservadas, sem novo redesign.
 
@@ -164,3 +161,13 @@ mídia e artefatos anteriores; testar restauração e migrations; escolher janel
 conforme retransmissão do rastreador. Não executar duas versões escrevendo no
 mesmo banco. Retorno após migration pode exigir restaurar banco e aplicação;
 definir como reconciliar posições recebidas após o backup.
+
+## Extensões integradas nesta pasta
+
+- Fila persistente de notificações: evento e atingimento da meta na mesma transação; tentativas por destinatário/canal, recuperação após reinício e retentativas limitadas. Tela em Configurações → histórico de envios; API `/api/devices/{id}/notification-deliveries`. Aceite do adaptador não comprova entrega final.
+- Financeiro opcional por usuário: `/api/users/{id}/billing`, pagamentos e histórico; carência padrão de dez dias completos após o vencimento no fuso configurado. Não migra contas automaticamente nem altera a ingestão GPS. Administrador/operador não pode modificar o próprio financeiro.
+- Saúde opcional por dispositivo: atributos `monitoring.*`, painel `/operations/health`, incidentes persistentes, histerese e recuperação. Nenhuma inferência de causa de silêncio ou confirmação de hibernação.
+- Comandos: cabeçalho `Idempotency-Key`, histórico `/api/devices/{id}/command-history`, distinção entre pedido, envio, resposta e telemetria de relé. Resultado incerto não autoriza repetição automática de comando físico.
+- Permissões de sockets recalculadas após revogação direta, remoção de grupo ou movimentação do dispositivo; consultas iniciais de posições limitadas ao escopo nativo do usuário.
+
+Migrations adicionais: `changelog-mobgo-notification-outbox.xml`, `changelog-mobgo-billing.xml`, `changelog-mobgo-health.xml` e `changelog-mobgo-command-ledger.xml`. Homologar com backup restaurado do MySQL antes de produção. Scripts existentes continuam sendo a referência de publicação; nesta sessão apenas builds e testes locais foram executados.

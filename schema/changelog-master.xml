@@ -44,4 +44,12 @@
   <include file="changelog-6.15.0.xml" relativeToChangelogFile="true" />
   <include file="changelog-6.17.0.xml" relativeToChangelogFile="true" />
 
+  <include file="changelog-mobgo-notification-outbox.xml" relativeToChangelogFile="true" />
+
+  <include file="changelog-mobgo-billing.xml" relativeToChangelogFile="true" />
+
+  <include file="changelog-mobgo-health.xml" relativeToChangelogFile="true" />
+
+  <include file="changelog-mobgo-command-ledger.xml" relativeToChangelogFile="true" />
+
 </databaseChangeLog>

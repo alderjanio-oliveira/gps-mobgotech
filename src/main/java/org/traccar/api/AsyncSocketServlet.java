@@ -71,6 +71,11 @@ public class AsyncSocketServlet extends JettyWebSocketServlet {
                 userId = (Long) ((HttpSession) req.getSession()).getAttribute(SessionHelper.USER_ID_KEY);
             }
             if (userId != null) {
+                try {
+                    loginService.checkUserAccess(userId);
+                } catch (StorageException | SecurityException error) {
+                    return null;
+                }
                 return new AsyncSocket(objectMapper, connectionManager, storage, userId);
             }
             return null;

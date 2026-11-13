@@ -182,7 +182,7 @@ Faixas de esforço para uma pessoa, não prazo contratado; recalibrar após U01 
 
 ## 7. Execução iniciada — situação atual
 
-Destino confirmado pelo usuário: `/home/alderjanio/traccar`, com backend e web na branch `mobgo/evolucao-6.17`, baseada em `mobgo/master`. `origin` permanece como upstream oficial. O backend efetivo do Rota-Tech foi localizado em `/home/alderjanio/personal-projects/traccar` (commit `44565ef81`). As constatações da seção 2 registram o estado anterior à execução.
+Destino definitivo corrigido pelo usuário: `/home/alderjanio/personal-projects/traccar`, com backend e web na branch `mobgo/evolucao-6.17`, baseada em `mobgo/master`. `origin` permanece como upstream oficial. O backend efetivo do Rota-Tech foi localizado em `/home/alderjanio/personal-projects/traccar` (commit `44565ef81`). As constatações da seção 2 registram o estado anterior à execução.
 
 ### Entregue no código local
 
@@ -221,11 +221,11 @@ Instruções, contratos e limitações: [`docs/operations/rota-tech-6.17-homolog
 ### Pendências do plano completo
 
 - [ ] Homologar com restauração do banco real, SMTP/Telegram/push e rastreador de bancada; medir latência e uso de recursos. Ambiente existente identificado nos scripts (staging no mesmo droplet, MySQL separado). Usuário assumiu o acesso e a atualização remota.
-- [ ] Outbox/fila, retentativas e trilha persistente de cada tentativa; atomicidade/reconciliação entre atingimento, evento e envio após crash/concorrência.
+- [x] Outbox/fila, tentativas persistentes e atingimento/evento/fila atômicos; homologação real ainda pendente.
 - [ ] Alertas configuráveis de silêncio/recuperação com histerese e incidentes persistentes; UI de diagnóstico e métricas J16.
 - [ ] Auditoria integral de multioperador por API, WebSocket, relatórios, notificações e comandos.
-- [ ] Histórico/correlação completos de comandos e prevenção de duplicação operacional.
-- [ ] Modelo financeiro, pagamentos e carência de dez dias (o comportamento financeiro ainda não foi alterado).
+- [x] Histórico/idempotência de comandos e prevenção de repetição; respostas sem prova protocolar permanecem sem correlação inferida.
+- [x] Financeiro opcional, pagamentos idempotentes e carência de dez dias; sem migração automática de clientes.
 - [ ] Dashboard operacional, relatórios/auditoria ampliados e operações em lote auditáveis.
 - [ ] Atualização do app em seu pacote posterior; preservar o contrato existente durante a homologação.
 - [x] Integração local dos forks em branches próprias e ponteiro web atualizado;

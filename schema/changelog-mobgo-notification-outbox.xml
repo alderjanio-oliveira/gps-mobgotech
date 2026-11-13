@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd"
+                  logicalFilePath="changelog-mobgo-notification-outbox">
+  <changeSet id="mobgo-notification-outbox-1" author="mobgo">
+    <createTable tableName="tc_event_outbox">
+      <column name="eventid" type="INT"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="positionsnapshot" type="CLOB"/>
+      <column name="state" type="VARCHAR(24)" defaultValue="pending"><constraints nullable="false"/></column>
+      <column name="attempts" type="INT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="nextattempt" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="leaseuntil" type="TIMESTAMP"/>
+      <column name="claimtoken" type="VARCHAR(36)"/>
+      <column name="errorcode" type="VARCHAR(128)"/>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_event_outbox" baseColumnNames="eventid" constraintName="fk_event_outbox_event" referencedTableName="tc_events" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createIndex tableName="tc_event_outbox" indexName="event_outbox_due"><column name="state"/><column name="nextattempt"/></createIndex>
+    <createTable tableName="tc_notification_deliveries">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="eventid" type="INT"><constraints nullable="false"/></column>
+      <column name="deviceid" type="INT"><constraints nullable="false"/></column>
+      <column name="notificationid" type="INT"><constraints nullable="false"/></column>
+      <column name="userid" type="INT"><constraints nullable="false"/></column>
+      <column name="channel" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="state" type="VARCHAR(24)" defaultValue="pending"><constraints nullable="false"/></column>
+      <column name="attempts" type="INT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="nextattempt" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="leaseuntil" type="TIMESTAMP"/>
+      <column name="claimtoken" type="VARCHAR(36)"/>
+      <column name="errorcode" type="VARCHAR(128)"/>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_notification_deliveries" baseColumnNames="eventid" constraintName="fk_delivery_outbox" referencedTableName="tc_event_outbox" referencedColumnNames="eventid" onDelete="CASCADE"/>
+    <addUniqueConstraint tableName="tc_notification_deliveries" columnNames="eventid,notificationid,userid,channel" constraintName="delivery_event_recipient_channel"/>
+    <createIndex tableName="tc_notification_deliveries" indexName="notification_delivery_due"><column name="state"/><column name="nextattempt"/></createIndex>
+    <createTable tableName="tc_notification_attempts">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="deliveryid" type="BIGINT"><constraints nullable="false"/></column>
+      <column name="attempt" type="INT"><constraints nullable="false"/></column>
+      <column name="startedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="finishedat" type="TIMESTAMP"/>
+      <column name="outcome" type="VARCHAR(24)"><constraints nullable="false"/></column>
+      <column name="errorcode" type="VARCHAR(128)"/>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_notification_attempts" baseColumnNames="deliveryid" constraintName="fk_attempt_delivery" referencedTableName="tc_notification_deliveries" referencedColumnNames="id" onDelete="CASCADE"/>
+    <addUniqueConstraint tableName="tc_notification_attempts" columnNames="deliveryid,attempt" constraintName="delivery_attempt_number"/>
+  </changeSet>
+</databaseChangeLog>

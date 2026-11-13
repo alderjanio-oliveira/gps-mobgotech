@@ -8,11 +8,14 @@ import org.traccar.model.Event;
 import org.traccar.model.Notification;
 import org.traccar.model.Position;
 import org.traccar.model.User;
+import org.traccar.notification.NotificationOutbox;
 import org.traccar.notification.NotificatorManager;
 import org.traccar.notificators.Notificator;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.Storage;
 
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -67,12 +70,28 @@ public class NotificationManagerTest {
                 .thenReturn(CompletableFuture.completedFuture(null));
         when(web.sendAsync(eq(notification), eq(user), eq(event), any()))
                 .thenReturn(CompletableFuture.completedFuture(null));
-        manager = new NotificationManager(new Config(), storage, cache, null, notificators, null);
+        var outbox = mock(NotificationOutbox.class);
+        when(outbox.save(any(), any())).thenAnswer(invocation -> {
+            ((Event) invocation.getArgument(0)).setId(100);
+            return true;
+        });
+        when(outbox.pendingEvents()).thenReturn(List.of(100L));
+        when(outbox.claimEvent(100)).thenReturn("token");
+        when(storage.getObject(eq(Event.class), any())).thenReturn(event);
+        List<NotificationOutbox.Delivery> deliveries = new ArrayList<>();
+        for (String channel : List.of("disabled", "mail", "web")) {
+            deliveries.add(new NotificationOutbox.Delivery(deliveries.size() + 1, 100, 1, 10, 5,
+                    channel, "sending", 1, new Date(), "token", null));
+        }
+        when(outbox.dueDeliveries()).thenReturn(deliveries);
+        when(outbox.claim(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        manager = new NotificationManager(new Config(), storage, cache, null, notificators, null, outbox);
     }
 
     @Test
     public void disabledChannelDoesNotSuppressMailOrWeb() {
         manager.updateEvents(Map.of(event, new Position()));
+        manager.drainOutbox();
         verify(mail).sendAsync(eq(notification), eq(user), eq(event), any());
         verify(web).sendAsync(eq(notification), eq(user), eq(event), any());
     }
@@ -82,6 +101,7 @@ public class NotificationManagerTest {
         when(mail.sendAsync(eq(notification), eq(user), eq(event), any()))
                 .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("SMTP unavailable")));
         manager.updateEvents(Map.of(event, new Position()));
+        manager.drainOutbox();
         verify(web).sendAsync(eq(notification), eq(user), eq(event), any());
     }
 }

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd"
+                  logicalFilePath="changelog-mobgo-command-ledger">
+  <changeSet id="mobgo-command-ledger-1" author="mobgo">
+    <createTable tableName="tc_command_requests">
+      <column name="requestid" type="VARCHAR(36)"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="deviceid" type="INT"><constraints nullable="false"/></column>
+      <column name="userid" type="INT"><constraints nullable="false"/></column>
+      <column name="clientkey" type="VARCHAR(128)"><constraints nullable="false"/></column>
+      <column name="fingerprint" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="commandtype" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="state" type="VARCHAR(24)"><constraints nullable="false"/></column>
+      <column name="requestedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="updatedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="queuedcommandid" type="INT"/>
+      <column name="reportedstate" type="VARCHAR(16)" defaultValue="unknown"><constraints nullable="false"/></column>
+      <column name="evidencetime" type="TIMESTAMP"/>
+      <column name="errorcode" type="VARCHAR(128)"/>
+    </createTable>
+    <addUniqueConstraint tableName="tc_command_requests" columnNames="userid,deviceid,clientkey" constraintName="command_client_request"/>
+    <createIndex tableName="tc_command_requests" indexName="command_device_requested"><column name="deviceid"/><column name="requestedat"/></createIndex>
+    <addForeignKeyConstraint baseTableName="tc_command_requests" baseColumnNames="deviceid" constraintName="fk_command_request_device" referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createTable tableName="tc_command_dedupe">
+      <column name="deviceid" type="INT"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="fingerprint" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="requestedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="version" type="INT" defaultValueNumeric="1"><constraints nullable="false"/></column>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_command_dedupe" baseColumnNames="deviceid" constraintName="fk_command_dedupe_device" referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createTable tableName="tc_command_responses">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="deviceid" type="INT"><constraints nullable="false"/></column>
+      <column name="responsekey" type="VARCHAR(64)"><constraints nullable="false" unique="true"/></column>
+      <column name="receivedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="devicetime" type="TIMESTAMP"/>
+      <column name="response" type="VARCHAR(4000)"><constraints nullable="false"/></column>
+      <column name="state" type="VARCHAR(24)"><constraints nullable="false"/></column>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_command_responses" baseColumnNames="deviceid" constraintName="fk_command_response_device" referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createIndex tableName="tc_command_responses" indexName="command_response_device"><column name="deviceid"/><column name="id"/></createIndex>
+  </changeSet>
+</databaseChangeLog>

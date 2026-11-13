@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.traccar.ServerManager;
 import org.traccar.broadcast.BroadcastService;
+import org.traccar.command.CommandLedger;
 import org.traccar.command.CommandSender;
 import org.traccar.command.CommandSenderManager;
 import org.traccar.model.Command;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.when;
 public class CommandsManagerTest {
 
     private Storage storage;
+    private CommandLedger ledger;
     private BlockStateManager blockState;
     private CommandSenderManager senders;
     private CommandsManager manager;
@@ -44,9 +46,11 @@ public class CommandsManagerTest {
         storage = mock(Storage.class);
         blockState = mock(BlockStateManager.class);
         senders = mock(CommandSenderManager.class);
+        ledger = mock(CommandLedger.class);
+        when(ledger.begin(any(), anyLong(), any())).thenReturn(new CommandLedger.Begin("request", true, "requested", null));
         manager = new CommandsManager(storage, mock(ServerManager.class), null,
                 mock(ConnectionManager.class), mock(BroadcastService.class), mock(NotificationManager.class),
-                mock(CacheManager.class), senders, blockState);
+                mock(CacheManager.class), senders, blockState, ledger);
         device = new Device();
         device.setId(31);
         when(storage.getObject(eq(Device.class), any())).thenReturn(device);
@@ -95,4 +99,23 @@ public class CommandsManagerTest {
         verifyNoInteractions(senders);
         verify(storage, never()).addObject(any(), any());
     }
+
+    @Test
+    public void replayNeverDispatchesAgain() throws Exception {
+        when(ledger.begin(any(), anyLong(), any()))
+                .thenReturn(new CommandLedger.Begin("existing", false, "sent", null));
+        assertNull(manager.sendCommand(command, 4, "key"));
+        verifyNoInteractions(senders);
+        verify(blockState, never()).request(any());
+    }
+
+    @Test
+    public void uncertainReplayRequiresInspectionInsteadOfResending() throws Exception {
+        when(ledger.begin(any(), anyLong(), any()))
+                .thenReturn(new CommandLedger.Begin("existing", false, "uncertain", null));
+        assertThrows(CommandLedger.Conflict.class, () -> manager.sendCommand(command, 4, "key"));
+        verifyNoInteractions(senders);
+        verify(blockState, never()).request(any());
+    }
+
 }

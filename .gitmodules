@@ -2,4 +2,4 @@
 	path = traccar-web
 	url = https://github.com/alderjanio-oliveira/traccar-web-.git
 	branch = master
-	ignore = all
+	ignore = none

@@ -67,7 +67,11 @@ public class DistanceReminderMigrationTest {
         }
         Path master = baseline.resolve("changelog-master.xml");
         Files.writeString(master, Files.readAllLines(master).stream()
-                .filter(line -> !line.contains("changelog-6.15.0.xml") && !line.contains("changelog-6.17.0.xml"))
+                .filter(line -> !line.contains("changelog-6.15.0.xml") && !line.contains("changelog-6.17.0.xml")
+                        && !line.contains("changelog-mobgo-notification-outbox.xml")
+                        && !line.contains("changelog-mobgo-billing.xml")
+                        && !line.contains("changelog-mobgo-health.xml")
+                        && !line.contains("changelog-mobgo-command-ledger.xml"))
                 .collect(Collectors.joining(System.lineSeparator())));
         var source = new JdbcDataSource();
         source.setURL("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1");

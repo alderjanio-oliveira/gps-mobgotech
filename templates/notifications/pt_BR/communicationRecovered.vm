@@ -1,0 +1,8 @@
+#set($subject = "$esc.html($device.name): Comunicação restabelecida")
+#set($digest = "$device.name: Comunicação restabelecida")
+<!DOCTYPE html>
+<html><body>
+$esc.html($device.name): Comunicação restabelecida<br>
+$dateTool.format('yyyy-MM-dd HH:mm:ss', $event.eventTime, $locale, $timezone)<br>
+<a href="$webUrl/event/$event.id">Ver evento</a>
+</body></html>

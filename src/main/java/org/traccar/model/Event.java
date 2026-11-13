@@ -37,6 +37,13 @@ public class Event extends Message {
 
     public Event() {}
 
+    public static final String TYPE_COMMUNICATION_SILENCE = "communicationSilence";
+    public static final String TYPE_COMMUNICATION_RECOVERED = "communicationRecovered";
+    public static final String TYPE_GPS_UNAVAILABLE = "gpsUnavailable";
+    public static final String TYPE_GPS_RECOVERED = "gpsRecovered";
+    public static final String TYPE_OFFLINE_IGNITION = "offlineIgnition";
+    public static final String TYPE_OFFLINE_IGNITION_RECOVERED = "offlineIgnitionRecovered";
+
     public static final String ALL_EVENTS = "allEvents";
 
     public static final String TYPE_COMMAND_RESULT = "commandResult";

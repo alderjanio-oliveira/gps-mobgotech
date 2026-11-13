@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.traccar.BaseProtocol;
 import org.traccar.ServerManager;
 import org.traccar.api.ExtendedObjectResource;
+import org.traccar.command.CommandLedger;
 import org.traccar.command.CommandSender;
 import org.traccar.command.CommandSenderManager;
 import org.traccar.database.CommandsManager;
@@ -45,10 +46,12 @@ import jakarta.inject.Inject;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -121,7 +124,9 @@ public class CommandResource extends ExtendedObjectResource<Command> {
 
     @POST
     @Path("send")
-    public Response send(Command entity, @QueryParam("groupId") long groupId) throws Exception {
+    public Response send(Command entity, @QueryParam("groupId") long groupId,
+            @HeaderParam("Idempotency-Key") String key) throws Exception {
+        permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
         if (entity.getId() > 0) {
             permissionsService.checkPermission(baseClass, getUserId(), entity.getId());
             long deviceId = entity.getDeviceId();
@@ -139,7 +144,7 @@ public class CommandResource extends ExtendedObjectResource<Command> {
             for (Device device : devices) {
                 Command command = QueuedCommand.fromCommand(entity).toCommand();
                 command.setDeviceId(device.getId());
-                QueuedCommand queuedCommand = commandsManager.sendCommand(command);
+                QueuedCommand queuedCommand = sendTracked(command, key);
                 if (queuedCommand != null) {
                     queuedCommands.add(queuedCommand);
                 }
@@ -149,7 +154,7 @@ public class CommandResource extends ExtendedObjectResource<Command> {
             }
         } else {
             permissionsService.checkPermission(Device.class, getUserId(), entity.getDeviceId());
-            QueuedCommand queuedCommand = commandsManager.sendCommand(entity);
+            QueuedCommand queuedCommand = sendTracked(entity, key);
             if (queuedCommand != null) {
                 return Response.accepted(queuedCommand).build();
             }
@@ -157,6 +162,14 @@ public class CommandResource extends ExtendedObjectResource<Command> {
 
         actionLogger.command(request, getUserId(), groupId, entity.getDeviceId(), entity.getType());
         return Response.ok(entity).build();
+    }
+
+    private QueuedCommand sendTracked(Command command, String key) throws Exception {
+        try {
+            return commandsManager.sendCommand(command, getUserId(), key);
+        } catch (CommandLedger.Conflict error) {
+            throw new WebApplicationException(error.getMessage(), Response.Status.CONFLICT);
+        }
     }
 
     @GET

@@ -86,8 +86,11 @@ public final class PositionUtil {
                 new Condition.Permission(User.class, userId, Device.class)));
         var deviceIds = devices.stream().map(BaseModel::getId).collect(Collectors.toUnmodifiableSet());
 
+        if (deviceIds.isEmpty()) {
+            return List.of();
+        }
         var positions = storage.getObjects(Position.class, new Request(
-                new Columns.All(), new Condition.LatestPositions()));
+                new Columns.All(), new Condition.LatestPositions(0, userId)));
         return positions.stream()
                 .filter(position -> deviceIds.contains(position.getDeviceId()))
                 .toList();

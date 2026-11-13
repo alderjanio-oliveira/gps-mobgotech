@@ -492,10 +492,9 @@ run_web() {
     require_cmd npm
     [ -d "$TRACCAR_HOME/web" ] || die "$TRACCAR_HOME/web não existe (TRACCAR_HOME=$TRACCAR_HOME está certo?)"
 
-    local node_version
-    node_version=$(node --version 2>/dev/null | grep -oP '(?<=v)[0-9]+' | head -n1)
-    [ -n "$node_version" ] && [ "$node_version" -ge 20 ] \
-        || die "Node.js 20+ não encontrado (rode 'node --version'). Instale antes de continuar."
+    require_cmd node
+    node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)' \
+        || die "Use Node.js 22.13+ ou 24 LTS para compilar a web atualizada."
 
     log "instalando dependências e compilando o front (traccar-web)..."
     (cd "$web_project" && npm ci && npm run build)

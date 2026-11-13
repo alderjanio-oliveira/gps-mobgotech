@@ -23,6 +23,7 @@ import org.traccar.model.Device;
 import org.traccar.model.LinkedDevice;
 import org.traccar.model.Permission;
 import org.traccar.model.UserRestrictions;
+import org.traccar.session.ConnectionManager;
 import org.traccar.session.cache.CacheManager;
 import org.traccar.storage.StorageException;
 
@@ -55,6 +56,9 @@ public class PermissionsResource extends BaseResource {
 
     @Inject
     private CacheManager cacheManager;
+
+    @Inject
+    private ConnectionManager connectionManager;
 
     @Inject
     private LogAction actionLogger;
@@ -145,6 +149,8 @@ public class PermissionsResource extends BaseResource {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
         for (Permission permission : validatePermissions(entities, true)) {
             storage.addPermission(permission);
+            connectionManager.invalidatePermission(true, permission.getOwnerClass(), permission.getOwnerId(),
+                    permission.getPropertyClass(), permission.getPropertyId(), true);
             cacheManager.invalidatePermission(
                     true,
                     permission.getOwnerClass(), permission.getOwnerId(),
@@ -168,6 +174,8 @@ public class PermissionsResource extends BaseResource {
         permissionsService.checkRestriction(getUserId(), UserRestrictions::getReadonly);
         for (Permission permission : validatePermissions(entities, false)) {
             storage.removePermission(permission);
+            connectionManager.invalidatePermission(true, permission.getOwnerClass(), permission.getOwnerId(),
+                    permission.getPropertyClass(), permission.getPropertyId(), false);
             cacheManager.invalidatePermission(
                     true,
                     permission.getOwnerClass(), permission.getOwnerId(),

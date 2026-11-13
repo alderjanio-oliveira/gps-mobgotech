@@ -15,30 +15,18 @@
  */
 package org.traccar.handler.events;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.traccar.model.DistanceReminder;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
-import org.traccar.storage.Storage;
-import org.traccar.storage.StorageException;
-import org.traccar.storage.query.Columns;
-import org.traccar.storage.query.Condition;
-import org.traccar.storage.query.Request;
 
 import jakarta.inject.Inject;
 
 public class DistanceReminderEventHandler extends BasePositionEventHandler {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(DistanceReminderEventHandler.class);
-
-    private final Storage storage;
-
     @Inject
-    public DistanceReminderEventHandler(CacheManager cacheManager, Storage storage) {
+    public DistanceReminderEventHandler(CacheManager cacheManager) {
         super(cacheManager);
-        this.storage = storage;
     }
 
     @Override
@@ -58,30 +46,19 @@ public class DistanceReminderEventHandler extends BasePositionEventHandler {
             if (!DistanceReminder.STATUS_PENDING.equals(reminder.getStatus())) {
                 continue;
             }
-            try {
-                double traveled = totalDistance - reminder.getStartValue();
-                if (Double.isFinite(traveled) && reminder.getStartValue() >= 0
-                        && Double.isFinite(reminder.getThresholdDistance())
-                        && reminder.getThresholdDistance() > 0 && traveled >= reminder.getThresholdDistance()) {
-                    // Persist a separate object first. A failed write must not consume the cached reminder.
-                    DistanceReminder update = new DistanceReminder();
-                    update.setId(reminder.getId());
-                    update.setStatus(DistanceReminder.STATUS_NOTIFIED);
-                    update.setNotifiedAt(position.getServerTime());
-                    storage.updateObject(update, new Request(
-                            new Columns.Include("status", "notifiedAt"),
-                            new Condition.Equals("id", reminder.getId())));
-                    reminder.setStatus(update.getStatus());
-                    reminder.setNotifiedAt(update.getNotifiedAt());
-
-                    Event event = new Event(Event.TYPE_DISTANCE_REMINDER, position);
-                    event.setDistanceReminderId(reminder.getId());
-                    event.set("traveledDistance", traveled);
-                    event.set("thresholdDistance", reminder.getThresholdDistance());
-                    callback.eventDetected(event);
+            double traveled = totalDistance - reminder.getStartValue();
+            if (Double.isFinite(traveled) && reminder.getStartValue() >= 0
+                    && Double.isFinite(reminder.getThresholdDistance())
+                    && reminder.getThresholdDistance() > 0 && traveled >= reminder.getThresholdDistance()) {
+                Event event = new Event(Event.TYPE_DISTANCE_REMINDER, position);
+                event.setDistanceReminderId(reminder.getId());
+                event.set("traveledDistance", traveled);
+                event.set("thresholdDistance", reminder.getThresholdDistance());
+                callback.eventDetected(event);
+                if (event.getId() > 0) {
+                    reminder.setStatus(DistanceReminder.STATUS_NOTIFIED);
+                    reminder.setNotifiedAt(position.getServerTime());
                 }
-            } catch (StorageException e) {
-                LOGGER.warn("Update distance reminder error", e);
             }
         }
     }

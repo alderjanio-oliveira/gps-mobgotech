@@ -24,6 +24,7 @@ import org.traccar.model.Pair;
 import org.traccar.model.Permission;
 import org.traccar.model.Position;
 import org.traccar.model.Server;
+import org.traccar.model.User;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
 import org.traccar.storage.query.Request;
@@ -130,6 +131,8 @@ public class MemoryStorage extends Storage {
                     yield false;
                 }
                 yield objects.computeIfAbsent(Device.class, key -> new ConcurrentHashMap<>()).values().stream()
+                        .filter(device -> condition.getUserId() <= 0 || checkPermission(
+                                new Condition.Permission(User.class, condition.getUserId(), Device.class), device))
                         .anyMatch(device -> (Long) retrieveValue(device, "positionId") == positionId);
             }
             default -> false;

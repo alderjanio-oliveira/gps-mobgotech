@@ -18,6 +18,7 @@ package org.traccar.api.security;
 import com.google.inject.Provider;
 import com.warrenstrange.googleauth.GoogleAuthenticator;
 import org.traccar.api.signature.TokenManager;
+import org.traccar.billing.BillingService;
 import org.traccar.config.Config;
 import org.traccar.config.Keys;
 import org.traccar.database.LdapProvider;
@@ -49,6 +50,7 @@ public class LoginService {
 
     private final Config config;
     private final Storage storage;
+    private final BillingService billingService;
     private final TokenManager tokenManager;
     private final LdapProvider ldapProvider;
     private final Provider<PermissionsService> permissionsServiceProvider;
@@ -61,8 +63,9 @@ public class LoginService {
     @Inject
     public LoginService(
             Config config, Storage storage, TokenManager tokenManager, @Nullable LdapProvider ldapProvider,
-            Provider<PermissionsService> permissionsServiceProvider) {
+            Provider<PermissionsService> permissionsServiceProvider, BillingService billingService) {
         this.storage = storage;
+        this.billingService = billingService;
         this.config = config;
         this.tokenManager = tokenManager;
         this.ldapProvider = ldapProvider;
@@ -190,11 +193,23 @@ public class LoginService {
         return new LoginResult(user);
     }
 
-    private void checkUserEnabled(User user) throws SecurityException {
+    public void checkUserAccess(long userId) throws StorageException {
+        if (userId == ServiceAccountUser.ID) {
+            return;
+        }
+        User user = storage.getObject(User.class, new Request(
+                new Columns.All(), new Condition.Equals("id", userId)));
+        checkUserEnabled(user);
+    }
+
+    private void checkUserEnabled(User user) throws SecurityException, StorageException {
         if (user == null) {
             throw new SecurityException("Unknown account");
         }
         user.checkDisabled();
+        if (!user.getAdministrator()) {
+            billingService.checkAccess(user.getId());
+        }
     }
 
     private void checkUserCode(User user, Integer code) throws SecurityException {

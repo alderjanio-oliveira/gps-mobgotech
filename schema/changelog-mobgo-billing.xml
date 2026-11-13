@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd"
+                  logicalFilePath="changelog-mobgo-billing">
+  <changeSet id="mobgo-billing-1" author="mobgo">
+    <createTable tableName="tc_billing_accounts">
+      <column name="userid" type="INT"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="duedate" type="DATE"><constraints nullable="false"/></column>
+      <column name="gracedays" type="INT" defaultValueNumeric="10"><constraints nullable="false"/></column>
+      <column name="timezone" type="VARCHAR(64)"><constraints nullable="false"/></column>
+      <column name="version" type="INT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+      <column name="legacyexpiration" type="TIMESTAMP"/>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_billing_accounts" baseColumnNames="userid" constraintName="fk_billing_account_user" referencedTableName="tc_users" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createTable tableName="tc_billing_payments">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="userid" type="INT"><constraints nullable="false"/></column>
+      <column name="actorid" type="INT"><constraints nullable="false"/></column>
+      <column name="amount" type="DECIMAL(16,2)"><constraints nullable="false"/></column>
+      <column name="currency" type="VARCHAR(3)" defaultValue="BRL"><constraints nullable="false"/></column>
+      <column name="previousdue" type="DATE"><constraints nullable="false"/></column>
+      <column name="nextdue" type="DATE"><constraints nullable="false"/></column>
+      <column name="paidat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="referencekey" type="VARCHAR(128)"><constraints nullable="false"/></column>
+    </createTable>
+    <addUniqueConstraint tableName="tc_billing_payments" columnNames="userid,referencekey" constraintName="billing_payment_reference"/>
+    <createTable tableName="tc_billing_changes">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="userid" type="INT"><constraints nullable="false"/></column>
+      <column name="actorid" type="INT"><constraints nullable="false"/></column>
+      <column name="changedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="beforevalue" type="CLOB"/>
+      <column name="aftervalue" type="CLOB"><constraints nullable="false"/></column>
+      <column name="reason" type="VARCHAR(32)"><constraints nullable="false"/></column>
+    </createTable>
+    <createIndex tableName="tc_billing_changes" indexName="billing_changes_user"><column name="userid"/><column name="id"/></createIndex>
+  </changeSet>
+</databaseChangeLog>

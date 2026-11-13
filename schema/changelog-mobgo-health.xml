@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd"
+                  logicalFilePath="changelog-mobgo-health">
+  <changeSet id="mobgo-health-1" author="mobgo">
+    <createTable tableName="tc_device_health">
+      <column name="deviceid" type="INT"><constraints nullable="false"/></column>
+      <column name="kind" type="VARCHAR(32)"><constraints nullable="false"/></column>
+      <column name="state" type="VARCHAR(16)"><constraints nullable="false"/></column>
+      <column name="observedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="changedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="candidateat" type="TIMESTAMP"/>
+      <column name="version" type="INT" defaultValueNumeric="0"><constraints nullable="false"/></column>
+    </createTable>
+    <addPrimaryKey tableName="tc_device_health" columnNames="deviceid,kind" constraintName="pk_device_health"/>
+    <addForeignKeyConstraint baseTableName="tc_device_health" baseColumnNames="deviceid" constraintName="fk_health_device" referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createTable tableName="tc_device_incidents">
+      <column name="id" type="BIGINT" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+      <column name="deviceid" type="INT"><constraints nullable="false"/></column>
+      <column name="kind" type="VARCHAR(32)"><constraints nullable="false"/></column>
+      <column name="openedat" type="TIMESTAMP"><constraints nullable="false"/></column>
+      <column name="recoveredat" type="TIMESTAMP"/>
+      <column name="recoveryreason" type="VARCHAR(32)"/>
+    </createTable>
+    <addForeignKeyConstraint baseTableName="tc_device_incidents" baseColumnNames="deviceid" constraintName="fk_incident_device" referencedTableName="tc_devices" referencedColumnNames="id" onDelete="CASCADE"/>
+    <createIndex tableName="tc_device_incidents" indexName="incident_device_kind"><column name="deviceid"/><column name="kind"/><column name="recoveredat"/></createIndex>
+  </changeSet>
+</databaseChangeLog>

@@ -101,6 +101,13 @@ public class AsyncSocket implements Session.Listener.AutoDemanding, ConnectionMa
     }
 
     @Override
+    public void onAccessRevoked() {
+        if (session != null && session.isOpen()) {
+            session.close(4000, "Access revoked", Callback.NOOP);
+        }
+    }
+
+    @Override
     public void onKeepalive() {
         sendData(new HashMap<>());
     }

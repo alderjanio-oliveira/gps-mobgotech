@@ -6,8 +6,6 @@ import org.traccar.model.DistanceReminder;
 import org.traccar.model.Event;
 import org.traccar.model.Position;
 import org.traccar.session.cache.CacheManager;
-import org.traccar.storage.Storage;
-import org.traccar.storage.StorageException;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -44,28 +42,39 @@ public class DistanceReminderEventHandlerTest extends BaseTest {
         when(cacheManager.getPosition(anyLong())).thenReturn(lastPosition);
         when(cacheManager.getDeviceObjects(anyLong(), eq(DistanceReminder.class))).thenReturn(Set.of(reminder));
 
-        var storage = mock(Storage.class);
-        DistanceReminderEventHandler eventHandler = new DistanceReminderEventHandler(cacheManager, storage);
+        DistanceReminderEventHandler eventHandler = new DistanceReminderEventHandler(cacheManager);
 
         List<Event> events = new ArrayList<>();
 
         position.set(Position.KEY_TOTAL_DISTANCE, 5000.0);
-        eventHandler.analyzePosition(position, events::add);
+        eventHandler.analyzePosition(position, event -> {
+            event.setId(1);
+            events.add(event);
+        });
         assertTrue(events.isEmpty());
         assertEquals(5000.0, reminder.getStartValue());
 
         position.set(Position.KEY_TOTAL_DISTANCE, 5999.0);
-        eventHandler.analyzePosition(position, events::add);
+        eventHandler.analyzePosition(position, event -> {
+            event.setId(1);
+            events.add(event);
+        });
         assertTrue(events.isEmpty());
 
         position.set(Position.KEY_TOTAL_DISTANCE, 6001.0);
-        eventHandler.analyzePosition(position, events::add);
+        eventHandler.analyzePosition(position, event -> {
+            event.setId(1);
+            events.add(event);
+        });
         assertEquals(1, events.size());
         assertEquals(Event.TYPE_DISTANCE_REMINDER, events.get(0).getType());
         assertEquals(DistanceReminder.STATUS_NOTIFIED, reminder.getStatus());
 
         events.clear();
-        eventHandler.analyzePosition(position, events::add);
+        eventHandler.analyzePosition(position, event -> {
+            event.setId(1);
+            events.add(event);
+        });
         assertTrue(events.isEmpty());
     }
 
@@ -87,10 +96,9 @@ public class DistanceReminderEventHandlerTest extends BaseTest {
     public void testStorageFailureDoesNotConsumeReminder() throws Exception {
         Fixture fixture = new Fixture(0, 1000);
         fixture.position.set(Position.KEY_TOTAL_DISTANCE, 1000.0);
-        org.mockito.Mockito.doThrow(new StorageException("unavailable"))
-                .doNothing().when(fixture.storage).updateObject(
-                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-        fixture.run();
+        fixture.handler.analyzePosition(fixture.position, event -> {
+            throw new IllegalStateException("database down");
+        });
         assertTrue(fixture.events.isEmpty());
         assertEquals(DistanceReminder.STATUS_PENDING, fixture.reminder.getStatus());
         fixture.run();
@@ -133,7 +141,6 @@ public class DistanceReminderEventHandlerTest extends BaseTest {
     private static class Fixture {
         private final DistanceReminder reminder = new DistanceReminder();
         private final Position position = new Position();
-        private final Storage storage = mock(Storage.class);
         private final CacheManager cacheManager = mock(CacheManager.class);
         private final List<Event> events = new ArrayList<>();
         private final DistanceReminderEventHandler handler;
@@ -149,11 +156,14 @@ public class DistanceReminderEventHandlerTest extends BaseTest {
             position.setServerTime(new Date(2000));
             when(cacheManager.getPosition(anyLong())).thenReturn(previous);
             when(cacheManager.getDeviceObjects(anyLong(), eq(DistanceReminder.class))).thenReturn(Set.of(reminder));
-            handler = new DistanceReminderEventHandler(cacheManager, storage);
+            handler = new DistanceReminderEventHandler(cacheManager);
         }
 
         void run() {
-            handler.analyzePosition(position, events::add);
+            handler.analyzePosition(position, event -> {
+                event.setId(1);
+                events.add(event);
+            });
         }
     }
 

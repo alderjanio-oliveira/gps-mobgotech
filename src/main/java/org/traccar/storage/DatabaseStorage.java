@@ -23,6 +23,7 @@ import org.traccar.model.Device;
 import org.traccar.model.Group;
 import org.traccar.model.GroupedModel;
 import org.traccar.model.Permission;
+import org.traccar.model.User;
 import org.traccar.storage.query.Columns;
 import org.traccar.storage.query.Condition;
 import org.traccar.storage.query.Order;
@@ -284,6 +285,10 @@ public class DatabaseStorage extends Storage {
                         results.add(new Date(System.currentTimeMillis() - period * 1000));
                     }
                 }
+                if (condition.getUserId() > 0) {
+                    results.addAll(getConditionVariables(
+                            new Condition.Permission(User.class, condition.getUserId(), Device.class)));
+                }
             }
             default -> {}
         }
@@ -359,6 +364,13 @@ public class DatabaseStorage extends Storage {
                 result.append(getStorageName(Device.class));
                 if (condition.getDeviceId() > 0) {
                     result.append(" WHERE id = ?");
+                }
+                if (condition.getUserId() > 0) {
+                    result.append(condition.getDeviceId() > 0 ? " AND " : " WHERE ");
+                    result.append("id IN (");
+                    result.append(formatPermissionQuery(
+                            new Condition.Permission(User.class, condition.getUserId(), Device.class)));
+                    result.append(')');
                 }
                 result.append(")");
 
